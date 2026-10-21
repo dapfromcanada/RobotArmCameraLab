@@ -1,0 +1,37 @@
+# camera_lab light configuration.
+#
+# `driver` selects the light-controller class by its registered name. Only the
+# simulated light exists until the real LED hardware is built; a real driver
+# will be one new module registered under its own name + an edit here.
+#
+# Safety caps (max %, max step %, changes per second) are NOT set here: they are
+# in safety_limits.yaml (lights.default / lights.<channel id>) and cannot be
+# changed at runtime.
+
+schema_version: 1
+driver: simulated
+
+channels:
+  # id:         used in commands and safety_limits.yaml overrides ([a-z0-9_-])
+  # max_pct:    hardware maximum of the channel (%); the safety cap may be lower
+  # sim_weight: simulated light only — contribution to scene brightness at 100 %
+  - id: white_ring
+    name: White ring light
+    colour: white
+    max_pct: 100
+    sim_weight: 0.5
+  - id: white_bar
+    name: White bar light
+    colour: white
+    max_pct: 100
+    sim_weight: 0.3
+  - id: red
+    name: Red
+    colour: red ~625 nm
+    max_pct: 100
+    sim_weight: 0.1
+  - id: blue
+    name: Blue
+    colour: blue ~470 nm
+    max_pct: 100
+    sim_weight: 0.1

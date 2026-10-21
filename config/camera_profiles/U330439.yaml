@@ -1,0 +1,31 @@
+# JAI Apex AP-3200T-PGE (s/n U330439) — camera profile.
+# Human-edited. Safety limits still apply to every setting (safety_limits.yaml).
+schema_version: 1
+serial: "U330439"
+label: JAI Apex AP-3200T-PGE (3-CMOS prism, global shutter)
+
+characteristics:
+  shutter: global           # manual L599: "three global shutter CMOS image sensors"
+  colour: prism             # R, G, B on separate sensors: no Bayer, full resolution per channel
+  hdr_capable: false
+  black_level: 0.031        # measured 2026-10-21: ~33 counts at 10 bit with BlackLevel = 0
+  notes:
+    - "Gain is a multiplier on the camera (converted to dB by the driver); WB = per-sensor gain."
+    - "Per-sensor exposure (ExposureTimeMode Individual) can balance colour without gain noise."
+    - "RGB12V1Packed bypasses gamma and white balance in the camera."
+
+default_mode: prism
+
+modes:
+  prism:
+    strategy: prism
+    description: >
+      Exposure → gain → white balance. White balance by per-sensor gain (default) or by
+      per-sensor exposure (options.wb_method: exposure).
+    settings:
+      advanced:
+        prism.exposure_mode: common
+    knobs: [exposure_us, gain_db, white_balance, prism.exposure_red_us, prism.exposure_green_us,
+            prism.exposure_blue_us]
+    options:
+      wb_method: gain

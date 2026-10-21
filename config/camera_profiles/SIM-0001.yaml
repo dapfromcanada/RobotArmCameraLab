@@ -1,0 +1,44 @@
+# Built-in simulated camera — profile with one mode per strategy, for tests and demos.
+schema_version: 1
+serial: SIM-0001
+label: camera_lab simulator
+
+characteristics:
+  shutter: global
+  colour: bayer
+  hdr_capable: true
+  black_level: 0.0
+  notes: ["Synthetic scene; HDR-like and prism-like modes emulate the bench cameras."]
+
+default_mode: linear
+
+modes:
+  linear:
+    strategy: linear
+    description: Standard exposure → gain → white balance.
+    settings:
+      advanced:
+        hdr.enabled: "off"
+        prism.exposure_mode: common
+    knobs: [exposure_us, gain_db, white_balance]
+  hdr:
+    strategy: hdr
+    description: HDR-like tone-compressed output; tunes the HDR channel exposures.
+    settings:
+      advanced:
+        hdr.enabled: "on"
+    knobs: [hdr.ch0.exposure_us, hdr.ch1.exposure_us]
+    scoring:
+      target_mean: 0.35
+      clip_max_pct: 0.2
+  prism:
+    strategy: prism
+    description: Prism-like; white balance by per-channel exposure.
+    settings:
+      pixel_format: RGB8
+      advanced:
+        hdr.enabled: "off"
+    knobs: [exposure_us, gain_db, white_balance, prism.exposure_red_us, prism.exposure_green_us,
+            prism.exposure_blue_us]
+    options:
+      wb_method: exposure

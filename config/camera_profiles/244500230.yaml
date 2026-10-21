@@ -1,0 +1,27 @@
+# Lucid Triton TRI089S-M (s/n 244500230, fw 1.97.0.0) — camera profile.
+# Human-edited. Safety limits still apply to every setting (safety_limits.yaml).
+# Node map dump: docs/cameras/TRI089S-M_244500230_fw1.97.0.0_nodemap.tsv
+schema_version: 1
+serial: "244500230"
+label: Lucid Triton TRI089S-M (mono, global shutter, 4096 x 2160)
+
+characteristics:
+  shutter: global           # live SensorShutterMode = Global
+  colour: mono              # Mono8/10/12/16 (+ packed); no white balance
+  hdr_capable: false        # no HDR nodes
+  black_level: null         # not measured yet
+  notes:
+    - "Free-run 12.6 fps at Mono8 full frame, 8.4 fps at Mono12p (GigE link limit, measured 2026-10-21)."
+    - "BalanceRatio* / BalanceWhiteAuto nodes are listed but neither readable nor writable."
+    - "Has Gamma (0.2-2.0); base settings keep gamma 1.0 so images stay linear for measurement."
+
+default_mode: linear
+
+modes:
+  linear:
+    strategy: linear
+    description: >
+      Linear mono: exposure first, then gain only if exposure runs out. Gamma 1.0.
+    settings:
+      gamma: 1.0
+    knobs: [exposure_us, gain_db]

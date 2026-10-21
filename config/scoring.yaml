@@ -1,0 +1,35 @@
+# camera_lab image-scoring targets and thresholds (2D).
+#
+# Scores are deterministic (no AI). Images are scored on luma (Rec. 709) of the
+# 0-1 normalised image; Bayer data is demosaiced first.
+#
+# Composite score (0-100) = 100 x exposure x clipping x black x noise, where
+#   exposure = 1 - min(1, |mean_level - target_mean| / tolerance)
+#   clipping = max(0, 1 - clipped_pct / clip_max_pct)
+#   black    = max(0, 1 - black_pct / black_max_pct)
+#   noise    = max(0, 1 - noise_sigma / noise_max)
+# Sharpness is reported but NOT part of the composite (it depends on the scene).
+#
+# Resolution order: default <- cameras.<serial> <- tags.<preset tag>.
+
+schema_version: 1
+
+default:
+  target_mean: 0.45        # desired mean luma (0-1)
+  tolerance: 0.25          # |mean - target| at which the exposure factor reaches 0
+  mean_pass_band: 0.05     # mean_level "passes" when within +/- this of the target
+  clip_max_pct: 1.0        # % clipped pixels (any channel at max code) at which clipping factor reaches 0
+  black_max_pct: 5.0       # % black pixels at which the black factor reaches 0
+  noise_max: 0.03          # Immerkaer noise sigma (0-1 units) at which the noise factor reaches 0
+  black_threshold: 0.02    # a pixel is "black" when all channels <= this fraction of full scale
+  roi: null                # optional scoring ROI as fractions of the image: {x, y, width, height}
+
+# Per-camera overrides (key = serial). Only the fields given replace the default.
+cameras: {}
+#  "U330439":
+#    target_mean: 0.40
+
+# Per-preset-tag overrides (e.g. an object or lighting setup name).
+tags: {}
+#  shiny_parts:
+#    clip_max_pct: 0.2

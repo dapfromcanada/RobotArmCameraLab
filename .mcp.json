@@ -1,0 +1,1 @@
+{ "mcpServers": { "camera-lab": { "command": "/mnt/workspaces/robotic_cell/environments/camera_lab/bin/camera-lab", "args": ["mcp"] } } }

@@ -1,0 +1,466 @@
+name	type	access	value	min	max	inc	entries
+ADCBitDepth	NodeEnumeration	RW	Bits12				Bits12
+AcquisitionBurstFrameCount	NodeInteger	RW	1	1	256	1	
+AcquisitionControl	NodeCategory	R	<AttributeError>				
+AcquisitionFrameCount	NodeInteger	RW	1	1	256	1	
+AcquisitionFrameRate	NodeFloat	R	12.586215576700397	0.1	12.586215576700397	None	
+AcquisitionFrameRateEnable	NodeBoolean	RW	False				
+AcquisitionLineRate	NodeFloat	R	30349.934747640295	-1.7976931348623157e+308	1.7976931348623157e+308	None	
+AcquisitionMode	NodeEnumeration	RW	Continuous				Continuous,SingleFrame,MultiFrame
+AcquisitionStart	NodeCommand	W					
+AcquisitionStartMode	NodeEnumeration	RW	Normal				Normal,LowLatency
+AcquisitionStop	NodeCommand	W					
+ActionControl	NodeCategory	R	<AttributeError>				
+ActionDeviceKey	NodeInteger	W					
+ActionGroupKey	NodeInteger	RW	0	0	4294967295	1	
+ActionGroupMask	NodeInteger	RW	0	0	4294967295	1	
+ActionPTPSyncRequired	NodeBoolean	RW	True				
+ActionQueueSize	NodeInteger	R	4	0	4294967295	1	
+ActionSelector	NodeInteger	RW	0	0	0	1	
+ActionUnconditionalMode	NodeEnumeration	RW	Off				Off,On
+AnalogControl	NodeCategory	R	<AttributeError>				
+AutoExposureAOI	NodeCategory	R	<AttributeError>				
+AutoExposureAOIEnable	NodeBoolean	RW	False				
+AutoExposureAOIHeight	NodeInteger						
+AutoExposureAOIOffsetX	NodeInteger						
+AutoExposureAOIOffsetY	NodeInteger						
+AutoExposureAOIWidth	NodeInteger						
+AwbAOI	NodeCategory	R	<AttributeError>				
+AwbAOIEnable	NodeBoolean	RW	False				
+AwbAOIHeight	NodeInteger						
+AwbAOIOffsetX	NodeInteger						
+AwbAOIOffsetY	NodeInteger						
+AwbAOIWidth	NodeInteger						
+AwbBayerPattern	NodeEnumeration						
+AwbDamping	NodeFloat	RW	100.0	0.390625	100.0	None	
+AwbDampingRaw	NodeInteger	RW	256	1	256	1	
+AwbStatsFrameCount	NodeInteger						
+AwbWhitePatchEnable	NodeBoolean						
+BalanceRatio	NodeFloat						
+BalanceRatioSelector	NodeEnumeration						
+BalanceWhiteAuto	NodeEnumeration						
+BalanceWhiteAutoAnchorSelector	NodeEnumeration						
+BalanceWhiteEnable	NodeBoolean						
+BinningHorizontal	NodeInteger	RW	1	1	8	1	
+BinningHorizontalMode	NodeEnumeration	RW	Sum				Sum,Average
+BinningSelector	NodeEnumeration	RW	Digital				Digital
+BinningVertical	NodeInteger	RW	1	1	8	1	
+BinningVerticalMode	NodeEnumeration	RW	Sum				Sum,Average
+BlackLevel	NodeFloat	RW	0.0	0.0	12.503052503052503	None	
+BlackLevelRaw	NodeInteger	RW	0	0	512	1	
+BlackLevelSelector	NodeEnumeration	RW	All				All,Sensor,Isp
+CalculatedMean	NodeInteger	R	48	0	65535	1	
+CalculatedMedian	NodeInteger	R	35	0	255	1	
+ChipID	NodeString	R					
+ChunkBlackLevel	NodeFloat						
+ChunkCRC	NodeInteger						
+ChunkDataControl	NodeCategory	R	<AttributeError>				
+ChunkDeepNeuralNetwork	NodeRegister						
+ChunkDeepNeuralNetworkLength	NodeInteger						
+ChunkEnable	NodeBoolean	R	True				
+ChunkExposureTime	NodeFloat						
+ChunkGain	NodeFloat						
+ChunkHeight	NodeInteger						
+ChunkHistogramStats	NodeRegister						
+ChunkLineStatusAll	NodeInteger						
+ChunkModeActive	NodeBoolean	RW	False				
+ChunkOffsetX	NodeInteger						
+ChunkOffsetY	NodeInteger						
+ChunkPixelDynamicRangeMax	NodeInteger						
+ChunkPixelDynamicRangeMin	NodeInteger						
+ChunkPixelFormat	NodeEnumeration						
+ChunkSelector	NodeEnumeration	RW	Image				Image,CRC,HistogramStats,Timestamp,SequencerSetActive,LineStatusAll,PixelFormat,Width,Height,OffsetX,OffsetY,PixelDynamicRangeMin,PixelDynamicRangeMax,Gain,BlackLevel,ExposureTime
+ChunkSequencerSetActive	NodeInteger						
+ChunkTimestamp	NodeInteger						
+ChunkTriggerLine	NodeInteger						
+ChunkWidth	NodeInteger						
+ColorTransformationControl	NodeCategory						
+ColorTransformationEnable	NodeBoolean						
+ColorTransformationSelector	NodeEnumeration						
+ColorTransformationValue	NodeFloat						
+ColorTransformationValueSelector	NodeEnumeration						
+CounterAndTimerControl	NodeCategory	R	<AttributeError>				
+CounterDuration	NodeInteger	RW	1	1	134217727	1	
+CounterEventActivation	NodeEnumeration	RW	RisingEdge				RisingEdge,FallingEdge,AnyEdge
+CounterEventSource	NodeEnumeration	RW	Off				Off,Line0,Line2,Line3,ExposureStart,AcquisitionStart
+CounterReset	NodeCommand	W					
+CounterResetActivation	NodeEnumeration	RW	RisingEdge				RisingEdge,FallingEdge,AnyEdge
+CounterResetSource	NodeEnumeration	RW	Off				Off,Line0,Line2,Line3,ExposureStart,AcquisitionStart,SoftwareSignal0,SoftwareSignal1,CounterTrigger
+CounterSelector	NodeEnumeration	RW	Counter0				Counter0,Counter1
+CounterStatus	NodeEnumeration	R	CounterIdle				CounterIdle,CounterTriggerWait,CounterActive,CounterCompleted,CounterOverflow
+CounterTriggerActivation	NodeEnumeration	RW	RisingEdge				RisingEdge,FallingEdge,AnyEdge
+CounterTriggerSource	NodeEnumeration	RW	Off				Off,Line0,Line2,Line3,ExposureStart,AcquisitionStart,SoftwareSignal0,SoftwareSignal1
+CounterValue	NodeInteger	RW	0	0	1	1	
+CounterValueAtReset	NodeInteger	R	0	0	4294967295	1	
+DecimationHorizontal	NodeInteger	RW	1	1	2	1	
+DecimationHorizontalMode	NodeEnumeration	RW	Discard				Discard
+DecimationSelector	NodeEnumeration	RW	Sensor				Sensor
+DecimationVertical	NodeInteger	RW	1	1	2	1	
+DecimationVerticalMode	NodeEnumeration	RW	Discard				Discard
+DefectCorrectionApply	NodeCommand						
+DefectCorrectionControl	NodeCategory	R	<AttributeError>				
+DefectCorrectionCount	NodeInteger	R	10	0	128	1	
+DefectCorrectionEnable	NodeBoolean	RW	True				
+DefectCorrectionGetNewDefect	NodeCommand	W					
+DefectCorrectionIndex	NodeInteger	RW	0	0	9	1	
+DefectCorrectionPositionX	NodeInteger	R	4075	0	4095	1	
+DefectCorrectionPositionY	NodeInteger	R	498	0	2159	1	
+DefectCorrectionRemove	NodeCommand	W					
+DefectCorrectionRestoreDefault	NodeCommand	W					
+DefectCorrectionSave	NodeCommand	W					
+DeviceCharacterSet	NodeEnumeration	R	UTF8				UTF8,ASCII
+DeviceClockFrequency	NodeFloat	R	37209000.0	-1.7976931348623157e+308	1.7976931348623157e+308	None	
+DeviceClockSelector	NodeEnumeration	RW	Sensor				Sensor
+DeviceControl	NodeCategory	R	<AttributeError>				
+DeviceEventChannelCount	NodeInteger	R	1	0	1	1	
+DeviceFactoryReset	NodeCommand	W					
+DeviceFamilyName	NodeString	R	Triton				
+DeviceFeaturePersistenceEnd	NodeCommand	W					
+DeviceFeaturePersistenceStart	NodeCommand	W					
+DeviceFirmwareVersion	NodeString	R	1.97.0.0				
+DeviceIndicatorMode	NodeEnumeration	RW	Active				Inactive,Active
+DeviceLinkCommandTimeout	NodeFloat	R	200000.0	0.0	1.7976931348623157e+308	None	
+DeviceLinkHeartbeatMode	NodeEnumeration	R	On				On,Off
+DeviceLinkHeartbeatTimeout	NodeFloat	RW	6000000.0	500000.0	4294967295000.0	None	
+DeviceLinkSelector	NodeInteger	RW	0	0	0	1	
+DeviceLinkSpeed	NodeInteger	R	125000000	-9223372036854775808	9223372036854775807	1	
+DeviceLinkThroughputLimit	NodeInteger	R	125000000	31250000	125000000	1	
+DeviceLinkThroughputLimitMode	NodeEnumeration	RW	Off				Off,On
+DeviceLinkThroughputReserve	NodeInteger	RW	10	0	30	1	
+DeviceManifestEntrySelector	NodeInteger	RW	1	1	63	1	
+DeviceManifestPrimaryURL	NodeString	R	Local:Lucid_Vision_Labs_TRI089S-M_rev1_0_d4d772619557e10cc6fd065e34daad6f.zip;800e5d28;10383				
+DeviceManifestSchemaMajorVersion	NodeInteger	R	1	0	63	1	
+DeviceManifestSchemaMinorVersion	NodeInteger	R	1	0	63	1	
+DeviceManifestSecondaryURL	NodeString	R	http://www.thinklucid.com/gev/Lucid_Vision_Labs_TRI089S-M_rev1_0_d4d772619557e10cc6fd065e34daad6f.zip				
+DeviceManifestXMLMajorVersion	NodeInteger	R	1	0	63	1	
+DeviceManifestXMLMinorVersion	NodeInteger	R	0	0	63	1	
+DeviceManifestXMLSubMinorVersion	NodeInteger	R	0	0	63	1	
+DeviceManufacturerInfo	NodeString	R	Lucid Vision Labs (www.thinklucid.com)				
+DeviceMaxThroughput	NodeInteger	R	121478400	0	4294967295	1	
+DeviceModelName	NodeString	R	TRI089S-M				
+DevicePower	NodeFloat	R	2.79125	0.0	1.7976931348623157e+308	None	
+DevicePressure	NodeFloat	R	99.2537841796875	0.0	1.7976931348623157e+308	None	
+DeviceRegistersStreamingEnd	NodeCommand	W					
+DeviceRegistersStreamingStart	NodeCommand	W					
+DeviceReset	NodeCommand	W					
+DeviceSFNCVersionMajor	NodeInteger	R	2	-9223372036854775808	9223372036854775807	1	
+DeviceSFNCVersionMinor	NodeInteger	R	3	-9223372036854775808	9223372036854775807	1	
+DeviceSFNCVersionSubMinor	NodeInteger	R	0	-9223372036854775808	9223372036854775807	1	
+DeviceScanType	NodeEnumeration	R	Areascan				Areascan,Linescan,Areascan3D,Linescan3D
+DeviceSerialNumber	NodeString	R	244500230				
+DeviceStreamChannelCount	NodeInteger	R	1	0	512	1	
+DeviceStreamChannelEndianness	NodeEnumeration	R	Little				Little,Big
+DeviceStreamChannelPacketSize	NodeInteger	RW	9000	576	9000	1	
+DeviceStreamChannelSelector	NodeInteger	RW	0	0	0	1	
+DeviceStreamChannelType	NodeEnumeration	R	Transmitter				Transmitter,Receiver
+DeviceTLType	NodeEnumeration	R	GigEVision				GigEVision,CameraLink,CameraLinkHS,CoaXPress,USB3Vision
+DeviceTLVersionMajor	NodeInteger	R	2	-9223372036854775808	9223372036854775807	1	
+DeviceTLVersionMinor	NodeInteger	R	0	-9223372036854775808	9223372036854775807	1	
+DeviceTLVersionSubMinor	NodeInteger	R	3	-9223372036854775808	9223372036854775807	1	
+DeviceTemperature	NodeFloat	R	50.0	-50.0	150.0	None	
+DeviceTemperatureSelector	NodeEnumeration	RW	Sensor				Sensor
+DeviceType	NodeEnumeration	R	Transmitter				Transmitter,Receiver,Transceiver,Peripheral
+DeviceUpTime	NodeInteger	R	2023	0	4294967295	1	
+DeviceUserID	NodeString	RW					
+DeviceVendorName	NodeString	R	Lucid Vision Labs				
+DeviceVersion	NodeString	R	RQQ51				
+DigitalIOControl	NodeCategory	R	<AttributeError>				
+EventAcquisitionTriggerMissed	NodeInteger						
+EventAcquisitionTriggerMissedData	NodeCategory						
+EventAcquisitionTriggerMissedTimestamp	NodeInteger						
+EventControl	NodeCategory	R	<AttributeError>				
+EventDestinationAddress	NodeInteger	R	0	0	4294967295	1	
+EventEncoder0Restarted	NodeInteger						
+EventEncoder0RestartedData	NodeCategory						
+EventEncoder0RestartedTimestamp	NodeInteger						
+EventEncoder0Stopped	NodeInteger						
+EventEncoder0StoppedData	NodeCategory						
+EventEncoder0StoppedTimestamp	NodeInteger						
+EventExposureEnd	NodeInteger						
+EventExposureEndData	NodeCategory						
+EventExposureEndFrameID	NodeInteger						
+EventExposureEndTimestamp	NodeInteger						
+EventExposureStart	NodeInteger						
+EventExposureStartData	NodeCategory						
+EventExposureStartFrameID	NodeInteger						
+EventExposureStartTimestamp	NodeInteger						
+EventFrameDropped	NodeInteger						
+EventFrameDroppedData	NodeCategory						
+EventFrameDroppedTimestamp	NodeInteger						
+EventFrameTriggerMissed	NodeInteger						
+EventFrameTriggerMissedData	NodeCategory						
+EventFrameTriggerMissedTimestamp	NodeInteger						
+EventNotification	NodeEnumeration	R	Off				Off,On
+EventSelector	NodeEnumeration	RW	ExposureStart				AcquisitionTriggerMissed,FrameTriggerMissed,ExposureStart,ExposureEnd,Test
+EventTemperatureOutOfRange	NodeInteger						
+EventTemperatureOutOfRangeData	NodeCategory						
+EventTemperatureOutOfRangeTimestamp	NodeInteger						
+EventTest	NodeInteger						
+EventTestData	NodeCategory						
+EventTestTimestamp	NodeInteger						
+ExposureActiveOutputSignalMode	NodeEnumeration						
+ExposureAuto	NodeEnumeration	RW	Continuous				Off,Once,Continuous
+ExposureAutoAlgorithm	NodeEnumeration	RW	Mean				Median,Mean
+ExposureAutoDamping	NodeFloat	RW	89.84375	0.390625	99.609375	None	
+ExposureAutoDampingRaw	NodeInteger	RW	230	1	255	1	
+ExposureAutoLimitAuto	NodeEnumeration	RW	Continuous				Off,Continuous
+ExposureAutoLowerLimit	NodeFloat	R	47.208	47.208	79190.704	None	
+ExposureAutoUpperLimit	NodeFloat	R	79190.704	47.208	79190.704	None	
+ExposureTime	NodeFloat	R	79190.704	47.208	79190.704	None	
+ExposureTimeRaw	NodeInteger	R	9898838	5901	9898838	1	
+ExposureTimeSelector	NodeEnumeration	RW	Common				Common
+FileAccessBuffer	NodeRegister	RW	<AttributeError>				
+FileAccessControl	NodeCategory	R	<AttributeError>				
+FileAccessLength	NodeInteger						
+FileAccessOffset	NodeInteger						
+FileOpenMode	NodeEnumeration	RW	Read				Read
+FileOperationExecute	NodeCommand	W					
+FileOperationResult	NodeInteger	R	0	0	4294967295	1	
+FileOperationSelector	NodeEnumeration	RW	Open				Open
+FileOperationStatus	NodeEnumeration	R	None				Success,Failure,None
+FileSelector	NodeEnumeration	RW	UserSetDefault				UserSetDefault,UserSet1,UserSet2,UserFile1,Firmware
+FileSize	NodeInteger	R	0	0	4294967295	1	
+FileStorageFreeSize	NodeInteger	R	11984896	0	4294967295	1	
+FileStorageSize	NodeInteger	R	16580608	0	4294967295	1	
+FileStorageUsedSize	NodeInteger	R	4587520	0	4294967295	1	
+FirmwareUpdate	NodeCommand	W					
+Gain	NodeFloat	RW	0.0	0.0	48.0	None	
+GainAuto	NodeEnumeration	RW	Off				Off,Once,Continuous
+GainAutoLowerLimit	NodeFloat	R	0.0	0.0	48.0	None	
+GainAutoUpperLimit	NodeFloat	R	48.0	0.0	48.0	None	
+GainRaw	NodeInteger	RW	0	0	480	1	
+GainSelector	NodeEnumeration	RW	All				All
+Gamma	NodeFloat	RW	1.0	0.2	2.0	None	
+GammaEnable	NodeBoolean	RW	True				
+GammaRaw	NodeInteger	RW	256	128	1280	1	
+GevCCP	NodeEnumeration	R	ControlAccessSwitchoverActive				OpenAccess,ExclusiveAccess,ControlAccess,ControlAccessSwitchoverActive
+GevCurrentDefaultGateway	NodeInteger	R	3232240641	0	4294967295	1	
+GevCurrentIPAddress	NodeInteger	R	3232240726	0	4294967295	1	
+GevCurrentIPConfigurationDHCP	NodeBoolean	RW	True				
+GevCurrentIPConfigurationLLA	NodeBoolean	R	True				
+GevCurrentIPConfigurationPersistentIP	NodeBoolean	RW	False				
+GevCurrentPhysicalLinkConfiguration	NodeEnumeration	R	SingleLink				SingleLink,MultiLink,StaticLAG,DynamicLAG
+GevCurrentSubnetMask	NodeInteger	R	4294967040	0	4294967295	1	
+GevDiscoveryAckDelay	NodeInteger	RW	20	0	999	1	
+GevGVCPExtendedStatusCodes	NodeBoolean						
+GevGVCPExtendedStatusCodesSelector	NodeEnumeration						
+GevGVCPPendingAck	NodeBoolean	RW	True				
+GevGVSPExtendedIDMode	NodeEnumeration						
+GevIPConfigurationStatus	NodeEnumeration	R	None				None,PersistentIP,DHCP,LLA,ForceIP
+GevInterfaceSelector	NodeInteger	RW	0	0	0	1	
+GevMACAddress	NodeInteger	R	30853694765747	-9223372036854775808	9223372036854775807	1	
+GevMCDA	NodeInteger	RW	0	0	4294967295	1	
+GevMCPHostPort	NodeInteger	RW	0	0	4294967295	1	
+GevMCRC	NodeInteger	RW	0	0	0	1	
+GevMCSP	NodeInteger	R	49153	0	4294967295	1	
+GevMCTT	NodeInteger	RW	0	0	0	1	
+GevPAUSEFrameReception	NodeBoolean						
+GevPAUSEFrameTransmission	NodeBoolean						
+GevPersistentARPConflictDetectionEnable	NodeBoolean	RW	True				
+GevPersistentDefaultGateway	NodeInteger	RW	0	0	4294967295	1	
+GevPersistentIPAddress	NodeInteger	RW	0	0	4294967295	1	
+GevPersistentSubnetMask	NodeInteger	RW	0	0	4294967295	1	
+GevPhysicalLinkConfiguration	NodeEnumeration	RW	SingleLink				SingleLink
+GevPrimaryApplicationIPAddress	NodeInteger	R	3232240641	0	4294967295	1	
+GevPrimaryApplicationSocket	NodeInteger	R	51451	0	4294967295	1	
+GevPrimaryApplicationSwitchoverKey	NodeInteger	W					
+GevSCDA	NodeInteger	RW	3232240641	0	4294967295	1	
+GevSCFTD	NodeInteger	RW	0	0	2147483640	8	
+GevSCPD	NodeInteger	RW	80	0	9027872	1	
+GevSCPHostPort	NodeInteger	RW	0	0	65535	1	
+GevSCPInterfaceIndex	NodeInteger	R	0	0	3	1	
+GevSCPSDoNotFragment	NodeBoolean	RW	True				
+GevSCPSFireTestPacket	NodeBoolean	R	False				
+GevSCPSPacketSize	NodeInteger	RW	9000	576	9000	1	
+GevSCSP	NodeInteger	R	49154	0	4294967295	1	
+GevSCTCPMTS	NodeInteger						
+GevStreamChannelSelector	NodeInteger	RW	0	0	0	1	
+GevSupportedOption	NodeBoolean	R	True				
+GevSupportedOptionSelector	NodeEnumeration	RW	SingleLink				SingleLink,MultiLink,StaticLAG,DynamicLAG,PAUSEFrameReception,PAUSEFrameGeneration,IPConfigurationLLA,IPConfigurationDHCP,IPConfigurationPersistentIP,StreamChannelSourceSocket,StandardIDMode,MessageChannelSourceSocket,CommandsConcatenation,WriteMem,PacketResend,Event,EventData,PendingAck,Ptp,Action,UnconditionalAction,ScheduledAction,PrimaryApplicationSwitchover,ExtendedStatusCodes,ExtendedStatusCodesVersion2_0,DiscoveryAckDelay,DiscoveryAckDelayWritable,TestData,ManifestTable,CCPApplicationSocket,LinkSpeed,HeartbeatDisable,SerialNumber,UserDefinedName,StreamChannel0BigAndLittleEndian,StreamChannel0IPReassembly,StreamChannel0MultiZone,StreamChannel0PacketResendDestination,StreamChannel0AllInTransmission,StreamChannel0UnconditionalStreaming,StreamChannel0ExtendedChunkData
+GigEVision	NodeCategory	R	<AttributeError>				
+Height	NodeInteger	RW	2160	2	2160	2	
+HeightMax	NodeInteger	R	2160	0	4294967295	1	
+I2CAccessBuffer	NodeRegister	RW	<AttributeError>				
+I2CAccessControl	NodeCategory	R	<AttributeError>				
+I2CAccessLength	NodeInteger	RW	0	0	4096	1	
+I2COperationExecute	NodeCommand	W					
+I2COperationResult	NodeInteger	R	0	0	4096	1	
+I2COperationSelector	NodeEnumeration	RW	Read				Read,Write
+I2COperationStatus	NodeEnumeration	R	None				Success,Failure,None
+I2CRegisterAddress	NodeInteger	RW	0	0	255	1	
+I2CRegisterAddressLength	NodeEnumeration	RW	Bits8				Bits8,Bits16
+I2CRegisterDataLength	NodeEnumeration	RW	Bits8				Bits8,Bits16,Bits24
+I2CSclSource	NodeEnumeration	RW	Off				Off
+I2CSdaSource	NodeEnumeration	RW	Off				Off
+I2CSlaveDeviceAddress	NodeInteger	RW	0	0	127	1	
+I2CSlaveDeviceAddressLength	NodeEnumeration	RW	Bits7				Bits7
+ISPClockSpeed	NodeEnumeration	RW	Normal				Normal,Fast
+ISPHeight	NodeInteger	R	2160	0	4294967295	1	
+ISPWidth	NodeInteger	R	4096	0	4294967295	1	
+ImageFormatControl	NodeCategory	R	<AttributeError>				
+ImagerHeight	NodeInteger	R	2160	0	4294967295	1	
+ImagerOffsetX	NodeInteger	R	0	0	4294967295	1	
+ImagerOffsetY	NodeInteger	R	0	0	4294967295	1	
+ImagerWidth	NodeInteger	R	4096	0	4294967295	1	
+IspBayerPattern	NodeEnumeration	R	NONE				RGGB,GRBG,GBRG,BGGR,NONE
+LUTControl	NodeCategory	R	<AttributeError>				
+LUTEnable	NodeBoolean	RW	False				
+LUTIndex	NodeInteger	RW	0	0	4095	1	
+LUTReset	NodeCommand	W					
+LUTSave	NodeCommand	W					
+LUTSelector	NodeEnumeration	RW	Luminance				Luminance
+LUTToneMapping	NodeEnumeration						
+LUTValue	NodeInteger	RW	0	0	4095	1	
+LUTValueAll	NodeRegister	RW	<AttributeError>				
+LineActivationVoltage	NodeEnumeration	RW	Low				Low,High
+LineFilterSelector	NodeEnumeration	RW	Deglitch				Deglitch,Debounce
+LineFilterWidth	NodeFloat	RW	0.02	0.02	1310.72	None	
+LineFormat	NodeEnumeration	R	OptoCoupled				NoConnect,TriState,TTL,LVDS,RS422,OptoCoupled,OpenDrain
+LineInverter	NodeBoolean	RW	False				
+LineMode	NodeEnumeration	RW	Input				Input
+LineSelector	NodeEnumeration	RW	Line0				Line0,Line1,Line2,Line3,Line4
+LineSource	NodeEnumeration	RW	Off				Off,ExposureActive,UserOutput0,UserOutput1,UserOutput2,UserOutput3,Timer0Active,Counter0Active,Timer1Active,Counter1Active
+LineStatus	NodeBoolean	R	False				
+LineStatusAll	NodeInteger	R	12	0	4294967295	1	
+LinkUpTime	NodeInteger	R	2020	0	4294967295	1	
+LocalizationAddress	NodeInteger	R	2148564284	0	4294967295	1	
+LocalizationLanguage	NodeEnumeration	RW	English				English,Chinese,Japanese
+LocalizationSize	NodeInteger	R	28059	0	4294967295	1	
+MultipleROIRowEnable	NodeBoolean						
+MultipleROIRowOffset	NodeInteger						
+MultipleROIRowSelector	NodeInteger						
+MultipleROIRowSize	NodeInteger						
+MultipleROIRowsEnable	NodeBoolean	RW	False				
+OffsetX	NodeInteger	RW	0	0	0	4	
+OffsetY	NodeInteger	RW	0	0	0	2	
+PTPSyncFrameRate	NodeFloat						
+PacketResendWindowFrameCount	NodeInteger	RW	4	1	8	1	
+PayloadSize	NodeInteger	R	8847360	0	4294967295	1	
+PhysicalPixelSize	NodeFloat	R	3.45	-1.7976931348623157e+308	1.7976931348623157e+308	None	
+PixelColorFilter	NodeEnumeration	R	None				None,BayerRG,BayerGR,BayerGB,BayerBG
+PixelDynamicRangeMax	NodeInteger	R	255	0	4294967295	1	
+PixelDynamicRangeMin	NodeInteger	R	0	0	4294967295	1	
+PixelFormat	NodeEnumeration	RW	Mono8				Mono8,Mono10,Mono10p,Mono10Packed,Mono12,Mono12p,Mono12Packed,Mono16
+PixelFormatMappingEnable	NodeBoolean						
+PixelFormatMappingSelector	NodeEnumeration						
+PixelSize	NodeEnumeration	R	Bpp8				Bpp1,Bpp2,Bpp4,Bpp8,Bpp10,Bpp12,Bpp14,Bpp16,Bpp20,Bpp24,Bpp30,Bpp32,Bpp36,Bpp48,Bpp64,Bpp72,Bpp96
+PolarizedAngleSelector	NodeEnumeration						
+PtpClockAccuracy	NodeEnumeration	R	GreaterThan10s				Within25ns,Within100ns,Within250ns,Within1us,Within2p5us,Within10us,Within25us,Within100us,Within250us,Within1ms,Within2p5ms,Within10ms,Within25ms,Within100ms,Within250ms,Within1s,Within10s,GreaterThan10s,Unknown
+PtpClockID	NodeInteger						
+PtpControl	NodeCategory	R	<AttributeError>				
+PtpDataSet	NodeInteger	R	2029384793792	0	9223372036854775807	1	
+PtpDataSetLatch	NodeCommand	W					
+PtpDataSetLatchValue	NodeInteger	R	0	-9223372036854775808	9223372036854775807	1	
+PtpEnable	NodeBoolean	RW	False				
+PtpGrandmasterClockID	NodeInteger						
+PtpOffsetFromMaster	NodeInteger						
+PtpParentClockID	NodeInteger						
+PtpServoStatus	NodeEnumeration	R	Disabled				Locked,Converging,Disabled,Unknown
+PtpSlaveOnly	NodeBoolean	RW	False				
+PtpStatus	NodeEnumeration	R	Disabled				Initializing,Faulty,Disabled,Listening,PreMaster,Master,Passive,Uncalibrated,Slave
+ReceivedPacketResendCount	NodeInteger	R	0	0	4294967295	1	
+ReverseX	NodeBoolean	RW	False				
+ReverseY	NodeBoolean	RW	False				
+Root	NodeCategory	R	<AttributeError>				
+SensorHeight	NodeInteger	R	2160	0	4294967295	1	
+SensorShutterMode	NodeEnumeration	RW	Global				Global
+SensorWidth	NodeInteger	R	4096	0	4294967295	1	
+SequencerConfigurationMode	NodeEnumeration	RW	Off				Off,On
+SequencerControl	NodeCategory	R	<AttributeError>				
+SequencerFeatureEnable	NodeBoolean	R	True				
+SequencerFeatureSelector	NodeEnumeration	RW	BalanceRatio				BalanceRatio,BalanceWhiteAuto,ExposureTime,Gain,LineSource
+SequencerMode	NodeEnumeration	R	Off				Off,On
+SequencerPathSelector	NodeInteger	RW	0	0	0	1	
+SequencerSetActive	NodeInteger	R	0	0	7	1	
+SequencerSetFrameCount	NodeInteger	R	1	1	1	1	
+SequencerSetLoad	NodeCommand						
+SequencerSetNext	NodeInteger	R	0	0	7	1	
+SequencerSetSave	NodeCommand						
+SequencerSetSelector	NodeInteger	RW	0	0	7	1	
+SequencerSetStart	NodeInteger	R	0	0	7	1	
+SequencerTriggerActivation	NodeEnumeration	R	RisingEdge				RisingEdge,FallingEdge,AnyEdge,LevelHigh,LevelLow
+SequencerTriggerSource	NodeEnumeration	R	Off				Off,FrameStart,Line0,Line2,Line3
+SerialAccessBuffer	NodeRegister	RW	<AttributeError>				
+SerialAccessControl	NodeCategory	R	<AttributeError>				
+SerialAccessLength	NodeInteger	RW	0	0	4096	1	
+SerialBaudRate	NodeEnumeration	RW	Baud57600				Baud9600,Baud14400,Baud19200,Baud38400,Baud57600,Baud115200
+SerialDataBits	NodeEnumeration	RW	DataBits8				DataBits8
+SerialFlowControl	NodeEnumeration	RW	None				None
+SerialOperationExecute	NodeCommand	W					
+SerialOperationResult	NodeInteger	R	0	0	4294967295	1	
+SerialOperationSelector	NodeEnumeration	RW	Read				Read,Write,Reset
+SerialOperationStatus	NodeEnumeration	R	None				Success,Failure,None
+SerialParity	NodeEnumeration	RW	None				None
+SerialReceiveSource	NodeEnumeration	RW	Off				Off,Line2,Line3
+SerialReceivedSize	NodeInteger	R	0	0	4294967295	1	
+SerialStopBits	NodeEnumeration	RW	StopBits1				StopBits1
+SharpeningAmount	NodeFloat						
+SharpeningEnable	NodeBoolean	RW	False				
+SharpeningThreshold	NodeFloat						
+ShortExposureEnable	NodeBoolean	RW	False				
+ShortReachModeEnable	NodeBoolean						
+SoftwareSignalControl	NodeCategory	R	<AttributeError>				
+SoftwareSignalPulse	NodeCommand	W					
+SoftwareSignalSelector	NodeEnumeration	RW	SoftwareSignal0				SoftwareSignal0,SoftwareSignal1
+TCPEnable	NodeBoolean						
+TargetBrightness	NodeInteger	RW	128	0	255	1	
+TestControl	NodeCategory	R	<AttributeError>				
+TestEventGenerate	NodeCommand						
+TestMode	NodeInteger	RW	0	0	4294967295	1	
+TestPattern	NodeEnumeration	RW	Off				Off,Pattern0,Pattern1,Pattern2,Pattern3,Pattern4,Pattern5,Pattern6,Pattern7
+TestPendingAck	NodeInteger	RW	0	0	4294967295	1	
+TimerDelay	NodeFloat	RW	0.0	0.0	134217727.0	1.0	
+TimerDuration	NodeFloat	RW	1.0	1.0	134217727.0	1.0	
+TimerReset	NodeCommand	W					
+TimerSelector	NodeEnumeration	RW	Timer0				Timer0,Timer1
+TimerStatus	NodeEnumeration	R	TimerIdle				TimerIdle,TimerTriggerWait,TimerActive,TimerCompleted
+TimerTriggerActivation	NodeEnumeration	RW	RisingEdge				RisingEdge,FallingEdge,AnyEdge
+TimerTriggerSource	NodeEnumeration	RW	Off				Off,Line0,Line2,Line3,ExposureStart,AcquisitionStart,SoftwareSignal0,SoftwareSignal1
+TimerValue	NodeFloat	RW	0.0	0.0	1.0	1.0	
+Timestamp	NodeInteger	R	2029479822752	0	9223372036854775807	1	
+TimestampLatch	NodeCommand	W					
+TimestampLatchValue	NodeInteger	R	0	-9223372036854775808	9223372036854775807	1	
+TimestampReset	NodeCommand	W					
+TransferAbort	NodeCommand						
+TransferBlockCount	NodeInteger						
+TransferControl	NodeCategory	R	<AttributeError>				
+TransferControlMode	NodeEnumeration	RW	Basic				Basic,Automatic,UserControlled
+TransferOperationMode	NodeEnumeration						
+TransferPause	NodeCommand						
+TransferQueueCurrentBlockCount	NodeInteger						
+TransferQueueMaxBlockCount	NodeInteger						
+TransferQueueMode	NodeEnumeration						
+TransferResume	NodeCommand						
+TransferSelector	NodeEnumeration	RW	Stream0				Stream0
+TransferStart	NodeCommand						
+TransferStatus	NodeBoolean						
+TransferStatusSelector	NodeEnumeration						
+TransferStop	NodeCommand						
+TransmissionFrameRate	NodeFloat						
+TransportLayerControl	NodeCategory	R	<AttributeError>				
+TransportStreamProtocol	NodeEnumeration	RW	UDP				UDP
+TriggerActivation	NodeEnumeration	RW	RisingEdge				RisingEdge,FallingEdge,AnyEdge,LevelHigh,LevelLow
+TriggerArmed	NodeBoolean	R	False				
+TriggerDelay	NodeFloat	RW	0.0	0.0	16777215.0	1.0	
+TriggerLatency	NodeEnumeration	RW	Off				Off,OneLine
+TriggerMode	NodeEnumeration	RW	Off				Off,On
+TriggerOverlap	NodeEnumeration	RW	Off				Off,PreviousFrame
+TriggerSelector	NodeEnumeration	RW	FrameStart				AcquisitionStart,FrameStart,FrameBurstStart,ExposureActive,FrameBurstActive
+TriggerSoftware	NodeCommand	W					
+TriggerSource	NodeEnumeration	RW	Line0				Software,Line0,Line2,Line3,Action0
+UnavailablePacketResendCount	NodeInteger	R	0	0	4294967295	1	
+UserOutputSelector	NodeEnumeration	RW	UserOutput0				UserOutput0,UserOutput1,UserOutput2,UserOutput3
+UserOutputValue	NodeBoolean	RW	False				
+UserOutputValueAll	NodeInteger	RW	0	0	4294967295	1	
+UserOutputValueAllMask	NodeInteger	RW	0	0	4294967295	1	
+UserSetControl	NodeCategory	R	<AttributeError>				
+UserSetDefault	NodeEnumeration	RW	Default				Default,UserSet1,UserSet2
+UserSetFeatureEnable	NodeBoolean	R	True				
+UserSetFeatureSelector	NodeEnumeration	RW	ADCBitDepth				ADCBitDepth,AcquisitionBurstFrameCount,AcquisitionFrameCount,AcquisitionFrameRate,AcquisitionFrameRateEnable,AcquisitionMode,AcquisitionStartMode,ActionGroupKey,ActionGroupMask,ActionPTPSyncRequired,AutoExposureAOIEnable,AutoExposureAOIHeight,AutoExposureAOIOffsetX,AutoExposureAOIOffsetY,AutoExposureAOIWidth,AwbAOIEnable,AwbAOIHeight,AwbAOIOffsetX,AwbAOIOffsetY,AwbAOIWidth,AwbDamping,BinningSelector,BlackLevel,BlackLevelSelector,ChunkEnable,ChunkModeActive,ChunkSelector,CounterDuration,CounterEventActivation,CounterEventSource,CounterResetActivation,CounterResetSource,CounterSelector,CounterTriggerActivation,CounterTriggerSource,CounterValue,DecimationHorizontal,DecimationHorizontalMode,DecimationSelector,DecimationVertical,DecimationVerticalMode,DefectCorrectionEnable,DeviceIndicatorMode,DeviceLinkSelector,DeviceLinkThroughputLimit,DeviceLinkThroughputLimitMode,DeviceLinkThroughputReserve,DeviceStreamChannelPacketSize,EventNotification,EventSelector,ExposureAuto,ExposureAutoAlgorithm,ExposureAutoDamping,ExposureAutoLimitAuto,ExposureAutoLowerLimit,ExposureAutoUpperLimit,ExposureTime,ExposureTimeSelector,Gain,GainAuto,GainAutoLowerLimit,GainAutoUpperLimit,GainSelector,Gamma,GammaEnable,GevSCPD,GevSCPSDoNotFragment,GevSCPSPacketSize,Height,ISPClockSpeed,LUTEnable,LUTSelector,LineActivationVoltage,LineInverter,LineMode,LineSelector,LineSource,MultipleROIRowEnable,MultipleROIRowOffset,MultipleROIRowSelector,MultipleROIRowSize,MultipleROIRowsEnable,OffsetX,OffsetY,PTPSyncFrameRate,PacketResendWindowFrameCount,PixelFormat,PtpEnable,PtpSlaveOnly,ReverseX,ReverseY,SerialBaudRate,SerialDataBits,SerialFlowControl,SerialParity,SerialReceiveSource,SerialStopBits,SharpeningAmount,SharpeningEnable,SharpeningThreshold,ShortExposureEnable,TargetBrightness,TestPattern,TimerDelayRaw,TimerSelector,TimerTriggerActivation,TimerTriggerSource,TransportStreamProtocol,TriggerActivation,TriggerDelay,TriggerLatency,TriggerMode,TriggerOverlap,TriggerSelector,TriggerSource,UserOutputSelector,UserOutputValue,VoltageExternalEnable,Width
+UserSetLoad	NodeCommand	W					
+UserSetSave	NodeCommand						
+UserSetSelector	NodeEnumeration	RW	Default				Default,UserSet1,UserSet2
+ValidPacketResendCount	NodeInteger	R	0	0	4294967295	1	
+VoltageExternalEnable	NodeBoolean						
+Width	NodeInteger	RW	4096	4	4096	4	
+WidthMax	NodeInteger	R	4096	0	4294967295	1	

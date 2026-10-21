@@ -1,0 +1,17 @@
+# camera_lab camera aliases and per-camera driver options.
+#
+# Everywhere in camera_lab a camera is identified by its serial number. The
+# aliases below are short names you can type instead; they are resolved to the
+# serial at the CLI / MCP / GUI boundary.
+
+schema_version: 1
+
+aliases:
+  triton: "233100505"    # Lucid Triton TRI054S-C (Arena SDK), 192.168.20.229 on enp9s0f1
+  mono89: "244500230"    # Lucid Triton TRI089S-M (Arena SDK), 192.168.20.86 on enp9s0f1
+  apex: "U330439"        # JAI Apex AP-3200T-PGE (eBUS SDK), 192.168.10.44 on enp9s0f0
+  sim: "SIM-0001"        # built-in simulated camera (needs --sim)
+
+# Per-camera driver options (network / stream overrides), keyed by serial.
+# Filled in by the Arena (Phase 5) and eBUS (Phase 6) drivers.
+cameras: {}

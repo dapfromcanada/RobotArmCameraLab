@@ -1,0 +1,51 @@
+# Lucid Triton TRI054S-C (s/n 233100505) — camera profile.
+# Human-edited. Safety limits still apply to every setting (safety_limits.yaml).
+schema_version: 1
+serial: "233100505"
+label: Lucid Triton TRI054S-C (HDR, rolling shutter, Bayer)
+
+characteristics:
+  shutter: rolling          # live SensorShutterMode = Rolling: static scenes only
+  colour: bayer             # BayerRG; RGB8 is debayered on the camera
+  hdr_capable: true         # 4 HDR channels, each with its own exposure + analog gain
+  black_level: null         # not measured yet (scene was dark at the bench)
+  notes:
+    - "In HDR mode (HDRTuningEnable on) ExposureTime and Gain are read-only; tune the HDR channels instead."
+    - "The manual only lists the HDR node names (HDR Control L2165); behaviour is being characterised at the bench."
+
+default_mode: hdr
+
+# Preferred ranges (guidance for the tuner / setup / agent; never a hard limit).
+# HDR (Derek 2026-10-21): channel exposures only up to one frame at free-run
+# (47.95 ms at 20.8 fps, BayerRG8 full frame), so the frame rate never drops;
+# the HDR channel gains stay fixed (not knobs). Too dark at one frame → the setup
+# stops and asks for more light.
+working_range:
+  exposure_us: {max: 200000}
+  gain_db: {min: 0, max: 18}
+  "hdr.ch*.exposure_us": {max: 47900}
+
+modes:
+  hdr:
+    strategy: hdr
+    description: >
+      HDR output (merged channels). Tunes the channels' shared exposure to avoid clipping while
+      keeping shadow detail; channel gains stay as set. v1 — to be refined with bench data.
+    settings:
+      advanced:
+        hdr.enabled: "on"
+        hdr.output: HDR
+    knobs: [hdr.ch0.exposure_us, hdr.ch1.exposure_us, hdr.ch2.exposure_us, hdr.ch3.exposure_us]
+    scoring:
+      target_mean: 0.35       # HDR output is tone-compressed; a lower mean keeps highlights
+      clip_max_pct: 0.2
+      black_max_pct: 2.0
+  linear:
+    strategy: linear
+    description: >
+      HDR tuning off: standard ExposureTime / Gain control (rolling shutter, static scenes).
+      Unverified: whether the output is still HDR-merged with HDR tuning off.
+    settings:
+      advanced:
+        hdr.enabled: "off"
+    knobs: [exposure_us, gain_db, white_balance]

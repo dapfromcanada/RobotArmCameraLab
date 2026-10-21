@@ -1,0 +1,17 @@
+# secrets / local overrides (none needed, but never commit them)
+.env
+.env.*
+!.env.example
+
+# tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+dist/
+
+# Arena SDK runtime file (written into the working directory)
+persist.json

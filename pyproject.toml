@@ -1,0 +1,98 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "camera-lab"
+dynamic = ["version"]
+description = "Bench tool for checking and tuning the robot cell's 2D cameras and LED lighting (CLI, MCP server, GUI)."
+readme = "README.md"
+requires-python = "==3.12.*"
+license = { text = "Proprietary" }
+authors = [{ name = "Derek" }]
+# Vendor SDK wheels (arena_api, ebus_base/edge/receive) are NOT listed here.
+# scripts/setup_env.sh installs them from WS/SDK/. Vendor imports are lazy.
+dependencies = [
+    "numpy>=1.26.4,<2",                     # eBUS wheels require numpy<2
+    "opencv-python-headless>=4.11,<4.12",   # last line on numpy 1.x; headless (no bundled Qt)
+    "tifffile>=2026.3.3,<2026.4",           # last release on numpy 1.x
+    "pydantic>=2.14.1,<3",
+    "PyYAML>=6.0.3,<7",
+    "mcp>=2.3.0,<3",                        # v2 API: mcp.server.mcpserver.MCPServer
+    "typer>=0.27.3,<0.28",
+    "PySide6-Essentials>=6.12.0,<6.13",     # not the PySide6 meta-package
+    "structlog>=26.1.0,<27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.1.1,<10",
+    "pytest-qt>=4.5.0,<5",
+    "pytest-cov>=7.1.0,<8",
+    "ruff>=0.17.1,<0.18",
+    "mypy>=2.4.0,<3",
+    "pip-audit>=2.10.1,<3",
+    "types-PyYAML",
+]
+
+[project.scripts]
+camera-lab = "camera_lab.cli:app"
+
+[tool.hatch.version]
+path = "src/camera_lab/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/camera_lab"]
+
+# ---------------------------------------------------------------- ruff
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF", "T20", "S"]
+# Unicode math (×, −, σ, 0–1) in docstrings is intentional: it documents formulas.
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S108", "S603"]   # asserts, /tmp paths and subprocess are fine in tests
+"tests/**/*_hw.py" = ["S101", "S108", "S603", "T201"]   # bench tests print results for the gate report
+"src/camera_lab/core/mcp_server.py" = ["E501"]   # tool descriptions / instructions are prose Claude reads
+
+# ---------------------------------------------------------------- mypy
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "src"
+packages = ["camera_lab"]
+warn_unused_configs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+module = "camera_lab.core.*"
+strict = true
+
+[[tool.mypy.overrides]]
+module = ["arena_api", "arena_api.*", "ebus_base", "ebus_base.*", "ebus_edge", "ebus_edge.*", "ebus_receive", "ebus_receive.*", "cv2", "cv2.*"]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-m 'not hw' --import-mode=importlib"
+markers = [
+    "hw: needs real camera hardware and vendor SDKs (run with -m hw at the bench)",
+]
+qt_api = "pyside6"
+
+[tool.coverage.run]
+source = ["camera_lab"]
+omit = [
+    "*/two_d/drivers/arena.py",
+    "*/two_d/drivers/ebus.py",
+    "*/two_d/gui/*",
+]

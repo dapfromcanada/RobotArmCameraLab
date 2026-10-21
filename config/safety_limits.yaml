@@ -1,0 +1,60 @@
+# camera_lab limits — the ONLY privilege boundary of the app.
+#
+# Read once at start-up. No CLI flag, MCP tool or GUI control can change these
+# values. To change a limit, a human edits this file and restarts camera_lab.
+# If this file is missing or invalid, camera_lab refuses to start (except with
+# --sim, which then uses built-in simulation defaults).
+#
+# Limits policy (schema 2, Derek 2026-10-21):
+# - Camera exposure, gain and frame rate are limited ONLY by the camera's own
+#   range: they cannot damage a camera. camera_lab does not narrow them here.
+#   Each camera profile (config/camera_profiles/<serial>.yaml) may give a
+#   `working_range` that steers tuning; it never blocks a human, the agent or a
+#   restore.
+# - Hard limits stay on lights (heat / eye safety), on rates and budgets (stop
+#   runaway loops), and on protected camera features (below).
+#
+# Units: light levels in percent of channel maximum (0-100).
+
+schema_version: 2            # file format version; must be 2 (schema 1 is refused)
+
+cameras:
+  # Applies to every camera unless a per-serial section overrides a field.
+  default:
+    allowed_pixel_formats: null   # null = any format the camera offers; or a list, e.g. [BayerRG8, RGB8]
+    max_writes_per_s: 5      # settings writes per second per camera (token bucket)
+    # GenICam features camera_lab never writes through its settings tools or a
+    # restore (shell wildcards). Writing them needs an explicit, confirmed human
+    # command (e.g. the confirmed User Set save in the setup procedure).
+    protected_features:
+      - "GevPersistent*"             # persistent IP / subnet / gateway: a wrong value makes the camera unreachable
+      - "GevCurrentIPConfiguration*" # DHCP / persistent-IP / LLA switches
+      - "DeviceReset"
+      - "DeviceFactoryReset"
+      - "FileAccess*"                # on-camera file system
+      - "FirmwareUpdate*"
+      - "UserSetSave"                # writes camera flash
+      - "UserSetDefault*"            # which user set the camera boots with
+
+  # Per-camera overrides: key = camera serial. Only the fields given replace the
+  # default (a protected_features list replaces the whole default list).
+  # "U330439":               # JAI Apex AP-3200T-PGE
+  #   max_writes_per_s: 3
+
+lights:
+  # Applies to every light channel unless a per-channel section overrides a field.
+  default:
+    max_pct: 80              # never drive a channel above 80 % of its maximum (heat / eye safety)
+    max_step_pct: 25         # largest change per step; bigger requests are ramped in steps
+    max_changes_per_s: 2     # light changes per second (ramp steps count as changes)
+
+  # Per-channel overrides: key = channel id from lights.yaml.
+  # red:
+  #   max_pct: 60
+
+tuning:
+  max_steps_hard: 40         # hard ceiling for a tuning run's step budget (max_steps <= this)
+  max_captures_per_run: 200  # captures one run may record
+
+mcp:
+  max_capture_count: 5       # frames per MCP `capture` call

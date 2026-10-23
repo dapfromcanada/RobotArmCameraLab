@@ -985,6 +985,7 @@ class ArenaCamera(Camera2D):
                     if ln[:1] in "+-"
                     and not ln.startswith(("+++", "---"))
                     and not ln[1:].startswith("#")
+                    and not ln[1:].startswith(_TRANSPORT_STREAMABLES)
                 ]
                 diffs += [f"streamables: {c}" for c in changed[:20]]
             self._auto_fps = False
@@ -1023,6 +1024,22 @@ class ArenaCamera(Camera2D):
             feats = self._node("UserSetFeatureSelector")
             stored = list(self._attr(feats, "enumentry_names") or []) if feats is not None else None
             return {"slot": slot, "default": default, "stored_features": stored, "notes": []}
+
+    def load_user_set(self, slot: str = "Default") -> dict[str, Any]:
+        """UserSetSelector = slot → UserSetLoad (stream paused), then the open-time setup.
+
+        Live TRI054S-C 2026-10-23: Default = BayerRG8, 30 ms, gain 0, BlackLevel 0, LUT on
+        (gamma 0.5), colour transformation on, HDR tuning off, white balance **auto
+        (Continuous)**, ratios ≈ 1; HDR channel gains at their factory values.
+        """
+        with self._lock, self._guard(), self._stream_paused():
+            sel = self._nm.get_node("UserSetSelector")
+            if slot not in (self._attr(sel, "enumentry_names") or []):
+                raise ValueError(f"camera has no user set {slot!r}")
+            sel.value = slot
+            self._nm.get_node("UserSetLoad").execute()
+        self.configure_on_open()
+        return {"slot": slot, "notes": ["open-time setup re-applied (autos off)"]}
 
     def identity_nodes(self) -> dict[str, str]:
         with self._lock, self._guard():
@@ -1406,6 +1423,11 @@ class _ArenaAccess(FeatureAccess):
 
     def write(self, name: str, value: Any) -> None:
         self._nm.get_node(name).value = value
+
+
+#: Streamable nodes the GigE transport sets itself when a stream starts (live TRI054S-C
+#: 2026-10-23: GevSCPSDoNotFragment flips 0 → 1): not a camera setting, not a restore failure.
+_TRANSPORT_STREAMABLES = ("GevSCPSDoNotFragment",)
 
 
 def buffer_to_array(buf: Any, pixel_format: str) -> npt.NDArray[Any]:

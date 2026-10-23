@@ -159,7 +159,9 @@ class FingerprintSession(
         actor: Actor = "human",
         root: Path | None = None,
         bench_path: Path | None = None,
+        reset: bool = True,
     ) -> None:
+        self.reset_on_start = reset  # factory Default, then the design mode
         self.service = service
         self.camera_id = service.resolve(camera_id)
         self.actor = actor

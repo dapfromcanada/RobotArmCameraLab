@@ -59,7 +59,15 @@ class SheetSnr(_Sheet):
         return max(self.points, key=lambda k: self.points[k]) if self.points else None
 
 
+class SheetConditions(_Sheet):
+    """The settings the performance numbers were measured at (other values scale them)."""
+
+    gain_db: float | None = None
+    black_level_pct: float | None = None
+
+
 class SheetPerformance(_Sheet):
+    conditions: SheetConditions = Field(default_factory=SheetConditions)
     full_scale_dn: float | None = None
     black_dn: float | None = None
     read_noise_dn: float | None = None

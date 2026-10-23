@@ -597,6 +597,37 @@ def setup(
         typer.echo(f"note: {note}")
 
 
+# ------------------------------------------------------------------- reset
+@app.command("reset")
+@handle_errors
+def reset_cmd(
+    ctx: typer.Context,
+    camera: CameraArg,
+    mode: str = typer.Option("", help="profile mode to enter (default: the design mode)"),
+) -> None:
+    """Start from a known state: factory Default, then the profile mode, every setting read back.
+
+    Never trust what the camera booted with (a user set may hold someone's old settings).
+    Live only: nothing is written to the camera's memory; the camera is backed up first.
+
+    Example: camera-lab two-d reset triton
+    """
+    svc = state(ctx).service(ctx)
+    svc.open(camera, OWNER)
+    out = svc.reset_camera(camera, mode or None, actor="human")
+    typer.echo(
+        f"loaded {out['loaded']}, mode {out['mode']}: " + ("ok" if out["ok"] else "MISMATCH")
+    )
+    for m in out["mismatches"]:
+        typer.echo(f"  ! {m}")
+    s = out["settings"]
+    typer.echo(
+        f"  {s['pixel_format']}, exposure {s['exposure_us']:.0f} µs, gain {s['gain_db']:.1f} dB, "
+        f"white balance {s.get('white_balance')}"
+    )
+    typer.echo(f"  backup before: {out['backup_before']}")
+
+
 # -------------------------------------------------------------- site light
 @app.command("assess-light")
 @handle_errors

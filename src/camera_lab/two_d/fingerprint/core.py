@@ -15,6 +15,7 @@ from camera_lab.two_d.models import PIXEL_FORMAT_BITS
 
 if TYPE_CHECKING:
     pass
+from camera_lab.two_d.errors import ConfigurationError
 from camera_lab.two_d.fingerprint.base import SessionBase
 from camera_lab.two_d.fingerprint.common import (
     BLACK_RAISE,
@@ -50,7 +51,14 @@ class CoreMeasurements(SessionBase):
         self._view_exposure, self._view_gain = float(start.exposure_us), float(start.gain_db)
         prof = self.service.get_profile(self.camera_id)
         self.mode, mode = prof.mode()  # the design mode: the profile's default
-        self.service.set_mode(self.camera_id, self.mode, self.actor)
+        reset = None
+        try:  # never trust the boot state: factory Default, then the design mode
+            if self.reset_on_start:
+                reset = self.service.reset_camera(self.camera_id, self.mode, self.actor)
+        except ConfigurationError:  # a driver that cannot load user sets
+            reset = None
+        if reset is None:
+            self.service.set_mode(self.camera_id, self.mode, self.actor)
         self.gain_knob = "gain_db" in mode.knobs
         view = self.service.get_settings(self.camera_id)
         options = view.options.get("pixel_format", ())
@@ -101,6 +109,15 @@ class CoreMeasurements(SessionBase):
             "channel_pixel_format": self.channel_fmt if self.hdr_channels else None,
             "black_level_raised_to": black_raised,
             "sensor_colour": self.colour,
+            "start_state": (
+                {"loaded": reset["loaded"], "mismatches": reset["mismatches"]} if reset else None
+            ),
+            # the numbers hold at these settings (a digital gain would scale every level)
+            "conditions": {
+                "gain_db": float(self._settings().gain_db),
+                "black_level": self._settings().advanced.get("black.level"),
+                "exposure_mode": "linear" if not self.hdr_channels else "hdr_merged",
+            },
             "format_family": format_family(self.fmt),
             "lens": self.lens,
         }

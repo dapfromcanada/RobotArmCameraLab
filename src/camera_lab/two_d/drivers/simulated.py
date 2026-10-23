@@ -188,6 +188,7 @@ class SimulatedCamera(Camera2D):
                 "prism.exposure_blue_us": 5000.0,
             },
         )
+        self._factory = self._settings  # what "Default" loads
         self._streaming = False
         self._closed = False
         self._frame_id = 0
@@ -631,6 +632,16 @@ class SimulatedCamera(Camera2D):
             "stored_features": None,
             "notes": [],
         }
+
+    def load_user_set(self, slot: str = "Default") -> dict[str, Any]:
+        """Default = the simulator's start-up settings; UserSetN = what was saved there."""
+        if slot == "Default":
+            self._settings = self._factory
+        elif slot in getattr(self, "user_sets", {}):
+            self._settings = self.user_sets[slot]
+        else:
+            raise ValueError(f"camera has no user set {slot!r}")
+        return {"slot": slot, "notes": []}
 
     def close(self) -> None:
         """Stop and close."""

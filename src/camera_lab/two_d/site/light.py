@@ -35,6 +35,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from camera_lab.core.paths import data_root, safe_join, validate_serial
 from camera_lab.two_d.camera_models import ModelSheet, load_model_sheet
+from camera_lab.two_d.errors import ConfigurationError
 from camera_lab.two_d.fingerprint import measure as fm
 from camera_lab.two_d.models import CameraSettingsPatch, is_bayer
 
@@ -52,7 +53,9 @@ FRAME_FLICKER_WARN_PCT = 1.0  # frame-to-frame brightness change (std, % of the 
 FRAME_FLICKER_FAIL_PCT = 5.0
 SNR_WARN = 0.6  # measured / expected SNR below this → noisier than the model should be
 CLIP_WARN_PCT, CLIP_FAIL_PCT = 0.5, 5.0
-DEFAULT_TARGET = 0.45  # level without a model sheet (fraction of full scale)
+HIGHLIGHT_TARGET = 0.80  # expose to the right: the scene's highlights (p99.5) here
+HIGHLIGHT_PCT = 99.5
+GAIN_TOLERANCE_DB = 0.1
 MAINS_HZ = (100.0, 120.0)
 MAINS_TOLERANCE = 0.12
 
@@ -110,6 +113,7 @@ class _Assessment:
         self.fmt = ""
         self.full = 0.0
         self.black = 0.0
+        self.budget = 0.0  # longest exposure allowed (µs)
 
     # ---------------------------------------------------------- helpers
     def plane(self) -> npt.NDArray[np.float64]:
@@ -137,6 +141,36 @@ class _Assessment:
             return float(top)
         return view.settings.frame_rate_hz
 
+    def set_budget(self) -> float:
+        """One frame at the camera's fastest frame rate, or the caller's maximum."""
+        lo, hi = self.exposure_range()
+        start = float(self.svc.get_settings(self.cam).settings.exposure_us)
+        fps = self.max_fps(lo)
+        self.set_exposure(start)
+        self.budget = min(self.max_exposure_us or (1e6 / fps if fps else hi), hi)
+        return self.budget
+
+    def gain_condition(self) -> None:
+        """The baseline's numbers hold at its gain; in a design mode where gain is digital any
+        other value scales every level and clips the highlights."""
+        want = self.sheet.performance.conditions.gain_db if self.sheet else None
+        if want is None:
+            return
+        now = float(self.svc.get_settings(self.cam).settings.gain_db)
+        if abs(now - want) <= GAIN_TOLERANCE_DB:
+            return
+        self.add(
+            SiteCheck(
+                name="gain",
+                status="warn",
+                message=f"gain is {now:.1f} dB; the baseline was measured at {want:.1f} dB, so "
+                f"output levels are × {10 ** ((now - want) / 20):.2f} against it",
+                action=f"set gain_db {want:g} (in this camera's design mode gain is digital: it "
+                "adds no SNR and clips highlights)",
+                data={"gain_db": now, "baseline_gain_db": want},
+            )
+        )
+
     def level(self, img: npt.NDArray[np.float64]) -> float:
         """Mean above black as a fraction of the range."""
         return (float(img.mean()) - self.black) / max(self.full - self.black, 1.0)
@@ -158,7 +192,8 @@ class _Assessment:
             if LINEAR_LO <= lvl <= LINEAR_HI:
                 break
             factor = 0.15 / max(lvl, 1e-4) if lvl < 0.98 else 0.25
-            exp = self.set_exposure(min(hi / 2, max(lo, exp * min(max(factor, 0.1), 50))))
+            top = min(hi, self.budget or hi) / 2  # E and 2E both within the budget
+            exp = self.set_exposure(min(top, max(lo, exp * min(max(factor, 0.1), 50))))
             img = self.plane()
         lvl = self.level(img)
         if not LINEAR_LO <= lvl <= LINEAR_HI:
@@ -237,7 +272,13 @@ class _Assessment:
         spec = np.abs(np.fft.rfft(rows, axis=1)).mean(axis=0)
         spec[0] = 0
         k = int(np.argmax(spec))
-        period_rows = rows.shape[1] / k if k else float("inf")
+        if 1 <= k < len(spec) - 1:  # parabolic interpolation between FFT bins
+            y0, y1, y2 = spec[k - 1], spec[k], spec[k + 1]
+            den = y0 - 2 * y1 + y2
+            kf = k + (0.5 * (y0 - y2) / den if den != 0 else 0.0)
+        else:
+            kf = float(k)
+        period_rows = rows.shape[1] / kf if kf > 0 else float("inf")
         return {
             "exposure_us": exp,
             "row_banding_share": share,
@@ -254,15 +295,24 @@ class _Assessment:
             return 1e6 / (sensor_rows * row_time)
         return None
 
-    def flicker(self, exp: float) -> float | None:
-        """Flicker at a short exposure (detection, frequency) and at ``exp`` (what remains);
-        returns the mains flicker frequency when the light flickers at 100 / 120 Hz."""
+    def detect_flicker(self) -> dict[str, Any]:
+        """Flicker at a short exposure: is it there, at what frequency, is it mains?"""
         lo, _ = self.exposure_range()
         short = self._banding(max(lo, SHORT_EXPOSURE_US))
-        work = self._banding(exp)
         present = short["banding_vs_row_noise"] > BANDING_VISIBLE
         freq = self._ripple_hz(short["band_period_rows"]) if present else None
         mains = next((m for m in MAINS_HZ if freq and abs(freq - m) / m < MAINS_TOLERANCE), None)
+        return {"short": short, "present": present, "ripple_hz": freq, "mains_hz": mains}
+
+    def flicker(self, exp: float, det: dict[str, Any]) -> None:
+        """What remains of the flicker at the recommended exposure ``exp``."""
+        short, present, freq, mains = (
+            det["short"],
+            det["present"],
+            det["ripple_hz"],
+            det["mains_hz"],
+        )
+        work = self._banding(exp)
         share, frame_pct = work["row_banding_share"], work["frame_change_pct"]
         data: dict[str, Any] = {"short": short, "working": work, "ripple_hz": freq}
         if mains is not None:
@@ -286,25 +336,25 @@ class _Assessment:
                     name="flicker",
                     status="pass",
                     message=f"steady light (no bands at {short['exposure_us'] / 1000:.2f} ms; at "
-                    f"{exp / 1000:.2f} ms row banding adds {share * 100:.1f} % to the noise, "
-                    f"brightness varies {frame_pct:.2f} % between frames)",
+                    f"the recommended {exp / 1000:.2f} ms row banding adds {share * 100:.1f} % to "
+                    f"the noise, brightness varies {frame_pct:.2f} % between frames)",
                     data=data,
                 )
             )
-            return None
+            return
         if not bad_now:
             self.add(
                 SiteCheck(
                     name="flicker",
                     status="warn",
                     message=f"{what}: bands at {short['exposure_us'] / 1000:.2f} ms; at the "
-                    f"working {exp / 1000:.2f} ms it averages out ({share * 100:.1f} % added "
+                    f"recommended {exp / 1000:.2f} ms it averages out ({share * 100:.1f} % added "
                     "noise)",
                     action=f"keep it that way: {safe}",
                     data=data,
                 )
             )
-            return mains
+            return
         status: Status = (
             "fail" if share > FLICKER_FAIL or frame_pct > FRAME_FLICKER_FAIL_PCT else "warn"
         )
@@ -315,41 +365,46 @@ class _Assessment:
             SiteCheck(
                 name="flicker",
                 status=status,
-                message=f"{what}: at {exp / 1000:.2f} ms row banding adds {share * 100:.0f} % "
-                f"to the noise; brightness varies {frame_pct:.2f} % between frames",
+                message=f"{what}: at the recommended {exp / 1000:.2f} ms row banding adds "
+                f"{share * 100:.0f} % to the noise; brightness varies {frame_pct:.2f} % between "
+                "frames",
                 action=safe,
                 data=data,
             )
         )
-        return mains
 
     def brightness(self, exp: float, mains: float | None) -> float:
-        """Exposure for the camera's best-SNR level within the frame budget."""
+        """Exposure that puts the scene's highlights (p99.5) at HIGHLIGHT_TARGET of full scale
+        ("expose to the right": a linear sensor's SNR is best near the top), within the
+        budget; whole flicker periods when the light flickers at mains frequency."""
         lo, hi = self.exposure_range()
         exp = self.set_exposure(exp)
-        img = np.mean([self.plane() for _ in range(2)], axis=0)
+        span = max(self.full - self.black, 1.0)
+        for _ in range(8):  # back off until the highlights are not clipped
+            img = np.mean([self.plane() for _ in range(2)], axis=0)
+            hi_lvl = (float(np.percentile(img, HIGHLIGHT_PCT)) - self.black) / span
+            if hi_lvl < 0.95 or exp <= lo:
+                break
+            exp = self.set_exposure(max(lo, exp / 4))
         lvl = self.level(img)
-        snr = self.sheet.performance.snr_vs_signal if self.sheet else None
-        best = snr.best_level() if snr is not None else None
-        target = best if best is not None else DEFAULT_TARGET
-        rate = lvl / exp  # fraction of the range per µs (linear output)
-        fps = self.max_fps(lo)
-        self.set_exposure(exp)
-        budget = self.max_exposure_us or (1e6 / fps if fps else hi)
-        budget = min(budget, hi)
-        want = target / rate if rate > 0 else float("inf")
+        target = HIGHLIGHT_TARGET
+        rate = max(hi_lvl, 1e-9) / exp  # highlight level per µs (linear output)
+        mean_rate = lvl / exp
+        budget = self.budget or hi
+        want = target / rate
         rec = min(max(want, lo), budget)
         if mains is not None:  # whole flicker periods cancel the flicker
             half = 1e6 / mains
             if rec >= half:
                 rec = max(half, math.floor(rec / half) * half)
         data = {
-            "target_level": target,
-            "target_from": "model sheet best SNR" if best is not None else "default",
+            "highlight_target": target,
+            "highlight_percentile": HIGHLIGHT_PCT,
             "exposure_needed_us": want,
             "exposure_budget_us": budget,
             "recommended_exposure_us": rec,
-            "level_at_recommended": rate * rec,
+            "highlight_level_at_recommended": rate * rec,
+            "mean_level_at_recommended": mean_rate * rec,
         }
         if want > budget:
             more = want / budget
@@ -357,9 +412,9 @@ class _Assessment:
                 SiteCheck(
                     name="brightness",
                     status="fail" if more > 2 else "warn",
-                    message=f"too dark: the camera's best level ({target * 100:.1f} %) needs "
-                    f"{want / 1000:.1f} ms; the budget is {budget / 1000:.1f} ms "
-                    f"(reaches {rate * budget * 100:.1f} %)",
+                    message=f"too dark: highlights at {target * 100:.0f} % of full scale (best "
+                    f"SNR) need {want / 1000:.1f} ms; the budget is {budget / 1000:.1f} ms "
+                    f"(highlights reach {rate * budget * 100:.1f} %)",
                     action=f"about {more:.1f}× more light (or a wider iris); never more gain",
                     data=data,
                 )
@@ -370,8 +425,8 @@ class _Assessment:
                 SiteCheck(
                     name="brightness",
                     status="fail" if less > 2 else "warn",
-                    message=f"too bright: even the shortest exposure ({lo:.0f} µs) is above the "
-                    f"best level",
+                    message=f"too bright: even the shortest exposure ({lo:.0f} µs) puts the "
+                    f"highlights above {target * 100:.0f} % of full scale",
                     action=f"about {less:.1f}× less light (or a smaller iris)",
                     data=data,
                 )
@@ -381,9 +436,9 @@ class _Assessment:
                 SiteCheck(
                     name="brightness",
                     status="pass",
-                    message=f"enough light: {rec / 1000:.2f} ms puts the scene at "
-                    f"{rate * rec * 100:.1f} % (target {target * 100:.1f} %, budget "
-                    f"{budget / 1000:.1f} ms)",
+                    message=f"enough light: {rec / 1000:.2f} ms puts the highlights at "
+                    f"{rate * rec * 100:.0f} % and the mean at {mean_rate * rec * 100:.1f} % of "
+                    f"full scale (budget {budget / 1000:.1f} ms)",
                     data=data,
                 )
             )
@@ -438,7 +493,7 @@ class _Assessment:
                     name="snr",
                     status="pass" if ok else "warn",
                     message=f"SNR at {len(rows)} brightness levels is {ratio:.2f}× what this "
-                    f"camera model gives ({sample})",
+                    f"camera model gives (sample: {sample})",
                     action=""
                     if ok
                     else "noisier than the camera should be: check that the camera and the "
@@ -515,6 +570,7 @@ def assess_light(
     actor: Actor = "human",
     max_exposure_us: float | None = None,
     apply: bool = False,
+    reset: bool = True,
     sheet_root: Path | None = None,
     out_root: Path | None = None,
     save: bool = True,
@@ -531,11 +587,31 @@ def assess_light(
     try:
         prof = service.get_profile(serial)
         mode = sheet.design_mode if sheet and sheet.design_mode in prof.modes else None
-        service.set_mode(serial, mode, actor)
+        if reset:  # never trust the boot state: factory Default, then the design mode
+            try:
+                out = service.reset_camera(serial, mode, actor)
+            except ConfigurationError:  # a driver that cannot load user sets
+                service.set_mode(serial, mode, actor)
+            else:
+                a.add(
+                    SiteCheck(
+                        name="start_state",
+                        status="pass" if out["ok"] else "fail",
+                        message=f"factory Default loaded, mode {out['mode']} applied"
+                        + ("" if out["ok"] else ": " + "; ".join(out["mismatches"])),
+                        action="" if out["ok"] else "the camera did not take the mode's settings",
+                        data={"mismatches": out["mismatches"], "mode": out["mode"]},
+                    )
+                )
+        else:
+            service.set_mode(serial, mode, actor)
+        a.set_budget()
+        a.gain_condition()
         exp = a.camera_state()
         if exp is not None:
-            mains = a.flicker(exp)
-            rec = a.brightness(exp, mains)
+            det = a.detect_flicker()
+            rec = a.brightness(exp, det["mains_hz"])
+            a.flicker(rec, det)
             a.snr_and_range(rec)
     finally:
         if apply and rec is not None:

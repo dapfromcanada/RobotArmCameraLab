@@ -25,6 +25,7 @@ sensor: {{shutter: rolling}}
 design_mode: linear
 timing: {{row_time_us: {ROW_TIME_US}}}
 performance:
+  conditions: {{gain_db: 0}}
   black_dn: {BLACK}
   read_noise_dn: 2.0
   row_noise_dn: 0.0
@@ -59,6 +60,7 @@ def _by(rep: Any) -> dict[str, Any]:
 
 
 def _assess(svc: TwoDService, sheets: Path, tmp_path: Path, **kw: Any) -> Any:
+    kw.setdefault("reset", False)  # the sim is set up by the fixture (Mono12, flat scene)
     return assess_light(svc, SIM, sheet_root=sheets, out_root=tmp_path / "out", **kw)
 
 
@@ -78,12 +80,15 @@ def test_a_good_scene_passes_and_is_restored(
     svc: TwoDService, sheets: Path, tmp_path: Path
 ) -> None:
     before = svc.get_settings(SIM).settings
-    rep = _assess(svc, sheets, tmp_path)
+    rep = _assess(svc, sheets, tmp_path, max_exposure_us=1_000_000)  # budget not the limit
     c = _by(rep)
     assert c["camera_state"].status == "pass"
     assert c["camera_state"].data["ratio"] == pytest.approx(2.0, abs=0.05)
     assert c["flicker"].status == "pass"
-    assert c["brightness"].data["target_level"] == 0.6  # the model's best-SNR level
+    br = c["brightness"].data  # highlights exposed to the right, within the budget
+    assert br["highlight_target"] == 0.8
+    assert br["highlight_level_at_recommended"] == pytest.approx(0.8, rel=0.1)
+    assert "gain" not in c  # at the baseline's gain
     assert c["snr"].status in ("pass", "info")
     assert c["distribution"].status == "info"
     assert rep.recommended_exposure_us and rep.baseline.endswith("Simulated2D.yaml")
@@ -177,3 +182,28 @@ def test_snr_by_level_on_a_textured_scene() -> None:
         sig = band.level * span
         model = sig / np.sqrt(k * sig + rn**2)
         assert band.snr == pytest.approx(model, rel=0.15), band
+
+
+def test_gain_off_the_baseline_is_flagged(
+    svc: TwoDService, sheets: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sim's design mode does not pin gain: a stray gain must be called out."""
+    svc.apply(SIM, CameraSettingsPatch(gain_db=6.0))
+    c = _by(_assess(svc, sheets, tmp_path))
+    assert c["gain"].status == "warn"
+    assert "baseline was measured at 0.0 dB" in c["gain"].message
+    assert "set gain_db 0" in c["gain"].action
+
+
+def test_reset_starts_from_factory_default_and_reads_back(
+    svc: TwoDService, sheets: Path, tmp_path: Path
+) -> None:
+    svc.apply(SIM, CameraSettingsPatch(gain_db=12.0, exposure_us=9000))  # a stray state
+    out = svc.reset_camera(SIM)
+    assert out["ok"] and out["loaded"] == "Default" and out["mode"] == "linear"
+    now = svc.get_settings(SIM).settings
+    assert now.gain_db == 0.0 and now.pixel_format == "BayerRG8"  # the sim's factory state
+    assert out["backup_before"]
+    rep = _assess(svc, sheets, tmp_path, reset=True)
+    start = _by(rep)["start_state"]
+    assert start.status == "pass" and start.data["mode"] == "linear"

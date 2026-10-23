@@ -103,6 +103,8 @@ Workflow
 1. list_cameras, then get_camera_profile(camera_id): it says what the camera is (rolling or
    global shutter, Bayer or 3-sensor prism, HDR) and its modes. Each mode names its tuning
    strategy and the `knobs` (settings) that make sense to change in that mode.
+   reset_camera(camera_id): ALWAYS first — factory Default, then the design mode, every
+   setting read back. Never trust the state a camera booted with.
    get_camera_white_paper(camera_id): the camera model's bench white paper — how it works,
    its quirks, measured performance and how to check its state. Read it first.
    assess_site_light(camera_id): checks the light on the real scene against that baseline
@@ -488,6 +490,19 @@ def create_server(
         return body()
 
     @server.tool(structured_output=False)
+    def reset_camera(camera_id: CameraId, mode: ModeName | None = None) -> Any:
+        """Start from a known state: load the factory Default settings, enter the profile mode
+        (default: the camera's design mode) with all its settings, and read every one back.
+        Never trust the state a camera booted with. Nothing is written to camera memory."""
+
+        @guarded("reset_camera")
+        def body(state: AppState) -> dict[str, Any]:
+            serial = _ensure_open(state, camera_id)
+            return _ok(**state.service.reset_camera(serial, mode, ACTOR))
+
+        return body()
+
+    @server.tool(structured_output=False)
     def get_camera_white_paper(camera_id: CameraId) -> Any:
         """The camera model's white paper (what it is, how it behaves, measured performance,
         diagnostics) and its machine-readable sheet. Read it before setting up a camera."""
@@ -606,6 +621,7 @@ TOOL_NAMES: tuple[str, ...] = (
     "start_tuning_run",
     "finish_tuning_run",
     "run_classic_tune",
+    "reset_camera",  # added 2026-10-23 (live settings only, backed up) — pending Derek's review
     "get_camera_white_paper",  # added 2026-10-23 (read-only) — pending Derek's review
     "assess_site_light",  # added 2026-10-23 (camera changes, restored) — pending Derek's review
     "list_presets",

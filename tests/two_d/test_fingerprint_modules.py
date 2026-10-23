@@ -79,7 +79,7 @@ def test_colour_result_recovers_gains_noise_and_imbalance() -> None:
 def ses(make_service: Callable[..., TwoDService], tmp_path: Path) -> FingerprintSession:
     svc = make_service(drivers={"simulated": SimulatedCameraDriver(None)})
     svc.open(SIM, "test")
-    return FingerprintSession(svc, SIM, root=tmp_path / "fp")
+    return FingerprintSession(svc, SIM, root=tmp_path / "fp", reset=False)
 
 
 def _replan(ses: FingerprintSession, colour: str, hdr: bool) -> None:
@@ -118,7 +118,7 @@ def test_bayer_camera_measures_its_colour_planes(
     drv = SimulatedCameraDriver(None, sensor=SensorModel(prnu=0.01), black_level=0.05)
     svc = make_service(drivers={"simulated": drv}, backups_root=tmp_path / "backups")
     svc.open(SIM, "test")
-    ses = FingerprintSession(svc, SIM, root=tmp_path / "fp")
+    ses = FingerprintSession(svc, SIM, root=tmp_path / "fp", reset=False)
     cam = svc._open[SIM].camera
     cam.scene = "cap"  # type: ignore[attr-defined]
     cap = ses.run("cap", ses.plan["cap"].checks)

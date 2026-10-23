@@ -83,6 +83,8 @@ class ReportMixin(SessionBase):
                 else ""
             ),
             f"- **Lens / iris:** {ident.get('lens') or 'not stated'}",
+            f"- **Conditions:** gain {ident.get('conditions', {}).get('gain_db')} dB, black level "
+            f"{ident.get('conditions', {}).get('black_level')}",
             "",
         ]
         lines += [f"- **{r.step}** ({r.status}): {r.message}" for r in self.results.values()]

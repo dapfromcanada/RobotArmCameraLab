@@ -706,6 +706,26 @@ numbers into verdicts and actions by comparing them with that baseline.
   (what remains). Detected "≈ 114 Hz (60 Hz mains)" — 120 Hz, coarse because a frame holds
   few cycles — averaging out at the working 208 ms; the recommended exposure snapped to
   100.00 ms = 12 × 8.33 ms; SNR again 1.01× the white paper at 11 levels.
+- **Fresh-agent test (2026-10-23):** an agent with only the CLI and the white paper set the
+  camera up and reported 11 gaps. The critical one: `raw_hdr` did not pin `Gain`, which in this
+  mode is digital after the merge — every 24-bit baseline number had been taken at a stray
+  28.6 dB. Fixed: the mode pins gain 0 dB and black level 1, the baseline was re-measured
+  (137 dB dynamic range, best SNR near the top), the sheet states its conditions, the site tool
+  warns on a gain mismatch and exposes highlights to 80 % within the frame budget, measures
+  flicker at the recommended exposure and interpolates the ripple frequency.
+- **Never trust the boot state (Derek 2026-10-23):** every tool starts from a known state —
+  load the factory **Default** user set (live only, nothing written to flash), apply the
+  design mode's **complete** settings, read every one back (`TwoDService.reset_camera`, CLI
+  `two-d reset`, MCP `reset_camera`; the site light assessment and the fingerprint do it
+  first). The white paper and sheet record what factory Default is (measured: TRI054S Default
+  runs auto white balance, LUT on, 8-bit) and the complete design-mode settings; `raw_hdr`
+  now pins gain 0, white balance 1/1/1 (BalanceRatio multiplies the raw data) and black
+  level 1. Drivers: `load_user_set` (Arena, eBUS, sim). The JAI boots from User Set 1 with no
+  boot-set feature, so the load on open is its only known start.
+  Still open from that list: CLI capture/score ignore mode scoring targets, `tune` cannot target
+  < 0.10, the black threshold makes no sense for 24-bit, one backup file per CLI call is
+  undocumented, `settings get` does not show the active mode, no non-interactive focus read,
+  `hdr.enhancement` / `hdr.clamping` and white balance on raw data undocumented.
 - **Next:**
   the "fresh agent" test (an agent with only camera_lab + the white paper sets the camera up).
 

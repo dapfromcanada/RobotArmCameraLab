@@ -51,13 +51,21 @@ modes:
       transformation off. HDR tuning off, so ExposureTime sets all four channel exposures
       and the factory channel gains stay. Verified linear 2026-10-22 (x2.00 per doubling).
       Tone mapping is done on the PC. The design mode of this camera: fingerprint and detect here.
+    # gain_db 0: in this mode Gain is a digital multiplier after the HDR merge (no SNR, it
+    # only clips highlights; 28.6 dB from an old user set cost 4.75 stops, 2026-10-23).
+    # black.level 1 (+40 DN): at the default 0, 64 % of dark pixels sit at 0 (noise clipped).
+    # white balance 1/1/1: BalanceRatio multiplies the raw 24-bit data, black included
+    # (factory Default even runs auto white balance); balance colour on the PC.
     settings:
       pixel_format: BayerRG24
+      gain_db: 0
+      white_balance: {red: 1.0, green: 1.0, blue: 1.0}
       advanced:
         hdr.enabled: "off"
         hdr.output: HDR
         lut.enabled: "off"
         color.transformation: "off"
+        black.level: 1.0
     knobs: [exposure_us]
     scoring:
       target_mean: 0.10       # linear 24-bit HDR: the scene sits low, highlights keep headroom

@@ -535,6 +535,71 @@ class TwoDService:
         _, oc = self._require_open(camera_id)
         return oc.camera.user_set_info()
 
+    def reset_camera(
+        self, camera_id: str, mode: str | None = None, actor: Actor = "human"
+    ) -> dict[str, Any]:
+        """Start from a known state: factory Default user set, then the profile mode (default:
+        the design mode) with all its settings, then every one read back.
+
+        Never trust the boot state (Derek 2026-10-23: a stray 28.6 dB in a user set skewed a
+        day of measurements). Live only: nothing is written to the camera's flash. The camera
+        is backed up first. ``mismatches`` lists the mode settings that did not take.
+        """
+        serial, oc = self._require_open(camera_id)
+        backup, _ = self._take_backup(serial, oc, "before reset to factory Default")
+        try:
+            loaded = oc.camera.load_user_set("Default")
+        except NotImplementedError:
+            raise ConfigurationError(f"camera {serial}: its driver cannot load user sets") from None
+        except ValueError as exc:
+            raise InvalidRequestError(str(exc)) from None
+        oc.mode = None
+        result = self.set_mode(serial, mode, actor)
+        mode_name, prof = self.get_profile(serial).mode(mode)
+        now = self.get_settings(serial).settings
+
+        def near(a: float, b: float) -> bool:  # cameras round to their own increments
+            return abs(a - b) <= max(1e-3, 0.01 * abs(b))
+
+        want = prof.settings
+        mismatches: list[str] = []
+        for name in ("pixel_format", "gain_db", "exposure_us", "frame_rate_hz", "trigger_mode"):
+            w, have = getattr(want, name), getattr(now, name)
+            close = isinstance(w, float) and near(float(have), w)
+            if w is not None and have != w and not close:
+                mismatches.append(f"{name}: wanted {w}, camera has {have}")
+        if want.white_balance:
+            for ch, w in want.white_balance.items():
+                got = (now.white_balance or {}).get(ch)
+                if got is None or not near(got, w):
+                    mismatches.append(f"white_balance.{ch}: wanted {w}, camera has {got}")
+        for key, wa in (want.advanced or {}).items():
+            cur = now.advanced.get(key)
+            same = (
+                near(float(cur), float(wa))
+                if isinstance(wa, int | float) and isinstance(cur, int | float)
+                else cur == wa
+            )
+            if not same:
+                mismatches.append(f"{key}: wanted {wa}, camera has {cur}")
+        _log.info(
+            "camera_reset",
+            camera_id=serial,
+            mode=mode_name,
+            mismatches=len(mismatches),
+            actor=actor,
+        )
+        return {
+            "camera_id": serial,
+            "loaded": loaded.get("slot"),
+            "mode": mode_name,
+            "applied": result.model_dump(mode="json"),
+            "settings": now.model_dump(mode="json"),
+            "mismatches": mismatches,
+            "ok": not mismatches,
+            "backup_before": backup.backup_id,
+        }
+
     def close(self, camera_id: str) -> None:
         """Stop streaming, close the camera and release its lock (idempotent)."""
         serial = self.cameras.resolve(camera_id)

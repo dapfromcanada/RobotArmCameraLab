@@ -114,6 +114,12 @@ class Camera2D(ABC):
         """
         raise NotImplementedError(f"{type(self).__name__} cannot save user sets")
 
+    def load_user_set(self, slot: str = "Default") -> dict[str, Any]:
+        """Load a user set (``Default`` = the factory settings) into the live settings, then
+        camera_lab's open-time setup again (autos off, trigger off, free-run). Live only:
+        nothing is written to the camera's flash."""
+        raise NotImplementedError(f"{type(self).__name__} cannot load user sets")
+
     def user_set_info(self) -> dict[str, Any]:
         """What the camera's user sets offer (read only): slots, boot-set feature,
         stored features (None = unknown), whether a save needs the stream stopped."""

@@ -64,6 +64,7 @@ class SessionBase:
     _channels: dict[str, dict[str, Any]]  # measured channels, kept across runs
     _arrays: dict[str, npt.NDArray[Any]]
     min_exposure_us: float  # lit measurements (bench light ripple)
+    reset_on_start: bool  # identity starts from factory Default (never trust the boot state)
     _row_noise_dn2: dict[str, float]  # sensor row noise per output ("HDR"/own, HDRChannelN)
 
     def _record(self, res: FpResult) -> FpResult:

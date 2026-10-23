@@ -1,0 +1,14 @@
+    0.49 ms  gain 0.0  mean        4354 (  0.026 % FS)  σt     161.6  SNR    26.9  step     1.0  max       5309  fps 6.93
+    1.00 ms  gain 0.0  mean        8806 (  0.052 % FS)  σt     227.1  SNR    38.8  step    20.0  max      10089  fps 6.93
+    2.00 ms  gain 0.0  mean       18131 (  0.108 % FS)  σt     318.2  SNR    57.0  step    20.0  max      20398  fps 6.93
+    4.01 ms  gain 0.0  mean       36465 (  0.217 % FS)  σt     453.4  SNR    80.4  step    20.0  max      39849  fps 6.93
+    8.01 ms  gain 0.0  mean       69961 (  0.417 % FS)  σt    3230.9  SNR    21.7  step     1.0  max     105342  fps 6.93
+   15.99 ms  gain 0.0  mean      139596 (  0.832 % FS)  σt    4209.9  SNR    33.2  step   153.0  max     172649  fps 6.93
+   32.00 ms  gain 0.0  mean      278655 (  1.661 % FS)  σt    5801.0  SNR    48.0  step   153.0  max     340521  fps 6.93
+   64.00 ms  gain 0.0  mean      560889 (  3.343 % FS)  σt   13452.9  SNR    41.7  step   153.0  max    1197043  fps 6.93
+  128.00 ms  gain 0.0  mean     1129024 (  6.730 % FS)  σt   18147.9  SNR    62.2  step  5723.0  max    3055924  fps 6.93
+  256.01 ms  gain 0.0  mean     2260582 ( 13.474 % FS)  σt   21819.7  SNR   103.6  step  5722.0  max    5736406  fps 3.90
+  512.01 ms  gain 0.0  mean     4524264 ( 26.967 % FS)  σt   28117.3  SNR   160.9  step  5723.0  max   10254425  fps 1.95
+ 1000.00 ms  gain 0.0  mean     8817463 ( 52.556 % FS)  σt   37528.2  SNR   235.0  step  5716.0  max   16777215  fps 1.00
+ 1500.00 ms  gain 0.0  mean    13252249 ( 78.990 % FS)  σt   46261.2  SNR   286.5  step  5719.0  max   16777215  fps 0.67
+ 1999.99 ms  gain 0.0  mean    16733255 ( 99.738 % FS)  σt   20028.4  SNR   835.5  step  5720.0  max   16777215  fps 0.50

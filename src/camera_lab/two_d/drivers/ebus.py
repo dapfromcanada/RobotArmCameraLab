@@ -511,6 +511,27 @@ class EbusCamera(Camera2D):
                 )
             return {"slot": slot, "default": None, "stored_features": None, "notes": notes}
 
+    def load_user_set(self, slot: str = "Default") -> dict[str, Any]:
+        """UserSetSelector = slot → UserSetLoad (stream stopped), then the open-time setup.
+        The JAI has no UserSetDefault: it boots from User Set 1 (power-cycle test
+        2026-10-21), so a known start needs this load on every open."""
+        with self._lock, self._guard():
+            if slot not in self._entries("UserSetSelector"):
+                raise ValueError(f"camera has no user set {slot!r}")
+            was_streaming = self._streaming
+            if was_streaming:
+                self.stop_stream()
+            try:
+                self._set("UserSetSelector", slot)
+                result = self._param("UserSetLoad").Execute()
+                if not result.IsOK():
+                    raise _ParamError(f"UserSetLoad: {_result_text(result)}")
+            finally:
+                if was_streaming:
+                    self.start_stream()
+        self.configure_on_open()
+        return {"slot": slot, "notes": ["open-time setup re-applied (autos off)"]}
+
     def identity_nodes(self) -> dict[str, str]:
         with self._lock, self._guard():
             out: dict[str, str] = {}

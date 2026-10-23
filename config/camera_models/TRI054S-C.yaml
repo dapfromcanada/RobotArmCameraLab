@@ -1,9 +1,34 @@
-# Camera white paper, machine-readable twin of TRI054S-C.md. DRAFT v8, 2026-10-23.
+# Camera white paper, machine-readable twin of TRI054S-C.md. DRAFT v10, 2026-10-23.
 # null = to be measured by the next fingerprint run.
 schema_version: 1
 model: TRI054S-C
 vendor: Lucid Vision Labs
 firmware_tested: ["1.138.0.0"]
+design_mode: raw_hdr                  # profile mode for measurement and detection
+startup:                              # never trust the boot state
+  procedure: [load factory Default (UserSetLoad, live only), apply the design mode, read back, verify on the image]
+  factory_default:                    # measured 2026-10-23
+    pixel_format: BayerRG8
+    exposure_us: 29991
+    gain_db: 0
+    black_level_pct: 0
+    lut: {enabled: true, tone_mapping: GammaPointFive}
+    colour_transformation: true
+    hdr: {tuning: false, output: HDR, enhancement: true, clamping: true, channel_gains_db: [19.8, 4.2, 29.4, 4.2]}
+    white_balance: {auto: Continuous, ratios: [1.01, 1.07, 1.0]}
+    frame_rate: free run (19.7 fps BayerRG8)
+    roi: [2880, 1860]
+  design_mode_settings:               # complete, applied on top of Default
+    pixel_format: BayerRG24
+    gain_db: 0
+    white_balance: {red: 1.0, green: 1.0, blue: 1.0}
+    hdr.enabled: "off"
+    hdr.output: HDR
+    lut.enabled: "off"
+    color.transformation: "off"
+    black.level: 1.0
+  verify: [settings read back equal, "exposure x2 -> signal x2.00", finest shadow step 1 DN, no dark pixel at 0]
+  white_balance_multiplies_raw: true
 sensor:
   name: Sony IMX490
   megapixels: 5.4
@@ -21,8 +46,8 @@ outputs:
   linear: {pixel_format: BayerRG24, lut: "off", colour_transformation: "off", gain_per_exposure_doubling: 2.00}
   lut_on: {gain_per_exposure_doubling: 1.41}
   single_channel: {hdr_output: [HDRChannel0, HDRChannel1, HDRChannel2, HDRChannel3], bits: 12}
-  black_level_linear_dn: 194          # internal; BlackLevel does not move it
-  black_level_control: {range_pct: [0, 12.5], default: 0, affects: single-channel outputs only}
+  black_level_control: {range_pct: [0, 12.5], default: 0, adds_pct_of_4095: true, keep_at_least: 1}
+  digital_gain_after_merge: true      # raw_hdr: Gain only scales and clips; keep 0 dB
 controls:
   exposure_us_min: 86.3
   exposure_longer_than_frame_lowers_fps: true
@@ -55,35 +80,36 @@ setting_names:                        # camera_lab key -> GenICam node
   lut.tone_mapping: LUTToneMapping
   color.transformation: ColorTransformationEnable
   black.level: BlackLevel
-performance:                          # linear 24-bit output, Kowa 8 mm f/1.4
+performance:                          # linear 24-bit output (raw_hdr)
+  conditions: {gain_db: 0, black_level_pct: 1}   # raw_hdr pins both; other gains scale every level
   full_scale_dn: 16777215
   runs: 1
   units: 1
-  black_dn: 194
-  black_fraction: 0.0000116
-  read_noise_dn: 64
-  read_noise_fraction: 0.0000038
-  row_noise_dn: 8                     # temporal, dark, independent of exposure
-  dynamic_range_db: 108.4             # saturation / read noise; datasheet says > 120
-  dynamic_range_stops: 18.0
-  noise_model: {formula: "sigma^2 = a + b*signal", a_dn2: null, b_dn: null}
-  linearity_error_pct: 0.24
-  snr_vs_signal:                      # level fraction of full scale -> SNR (one run, 2026-10-23)
-    monotonic: false
-    points: {0.0008: 6, 0.005: 25, 0.01: 31, 0.04: 67, 0.082: 96, 0.092: 63, 0.10: 27, 0.108: 21, 0.117: 22, 0.20: 31, 0.29: 38, 0.44: 47, 0.59: 55, 0.74: 62}
-    best: {level: 0.082, snr: 96}
-    worst_after_handover: {level: 0.108, snr: 21}
-  quantization:                       # step between possible values vs level
-    - {from_level: 0.0, step_dn: 26, effective_bits: 19.3}
-    - {from_level: 0.01, step_dn: 577, effective_bits: 14.8}
-    - {from_level: 0.10, step_dn: 4157, effective_bits: 12.0}
+  black_dn: 40
+  read_noise_dn: 2.4
+  row_noise_dn: 0.3
+  dsnu_dn: 0.6
+  dynamic_range_db: 136.9             # datasheet: > 120
+  dynamic_range_stops: 22.7
   dark_current_dn_s: 0
+  linearity_error_pct: 0.24
   prnu_pct: 1.3
   vignetting_corner_ratio: 0.90       # lens- and iris-dependent
-  colour: {light: "white LED panels (bench)", r_over_g: null, b_over_g: null, green_imbalance_pct: null}
+  noise_model: {formula: "sigma^2 = a + b*signal, per channel regime", a_dn2: null, b_dn: null}
+  snr_vs_signal:                      # level fraction of full scale -> SNR (Gain 0 dB, 2026-10-23)
+    monotonic: false
+    points: {0.0003: 27, 0.0005: 39, 0.0011: 57, 0.0022: 80, 0.0042: 22, 0.0083: 33, 0.0166: 48, 0.0334: 42, 0.0673: 62, 0.135: 104, 0.27: 161, 0.526: 235, 0.79: 287}
+    best: {level: 0.79, snr: 287}
+    dips: [{level: 0.0042, snr: 22, handover: "ch1->ch2"}, {level: 0.0334, snr: 42, handover: "ch2->ch3"}]
+  quantization:                       # step between possible values vs level (one code of the channel in use)
+    - {from_level: 0.0, step_dn: 1, channel: ch0}
+    - {from_level: 0.0005, step_dn: 20, channel: ch1}
+    - {from_level: 0.004, step_dn: 153, channel: ch2}
+    - {from_level: 0.035, step_dn: 5723, channel: ch3}
+  colour: {light: "DC LED floods (bench)", r_over_g: null, b_over_g: null, green_imbalance_pct: null}
   repeatability_spread_pct: null
 hdr_channels:
-  - {name: ch0, subpixel: large, conversion_gain: high, sensitivity_vs_ch3: 6200, gain_dn_per_e: null, full_well_e: null, read_noise_dn: 67}
+  - {name: ch0, subpixel: large, conversion_gain: high, sensitivity_vs_ch3: 5700, gain_dn_per_e: null, full_well_e: null, read_noise_dn: 67}
   - {name: ch1, subpixel: large, conversion_gain: low, sensitivity_vs_ch3: 280, gain_dn_per_e: null, full_well_e: null, read_noise_dn: 20}
   - {name: ch2, subpixel: small, conversion_gain: high, sensitivity_vs_ch3: 36, gain_dn_per_e: null, full_well_e: null, read_noise_dn: 231}
   - {name: ch3, subpixel: small, conversion_gain: low, sensitivity_vs_ch3: 1, gain_dn_per_e: null, full_well_e: null, read_noise_dn: 71, note: "two runs disagree 9x"}
@@ -96,6 +122,8 @@ limitations:
   - frame rate falls when exposure exceeds one frame period and halves with triggering
   - 8-bit output hides the noise floor
 diagnostics:
+  - {signature: "finest shadow step > 1 DN in raw_hdr", meaning: "digital gain on (step = 10^(gain/20)); set gain_db 0"}
+  - {signature: "many dark pixels exactly 0", meaning: "BlackLevel 0 clips dark noise; set black.level >= 1"}
   - {signature: "doubling exposure gives x1.41", meaning: "factory LUT on"}
   - {signature: "setting reads back but image unchanged", meaning: "written while streaming"}
   - {signature: "HDR off, factory channel values after power cycle", meaning: "normal: user sets do not store HDR"}
@@ -108,7 +136,7 @@ diagnostics:
   - {signature: "8-bit output looks noise-free", meaning: "normal: 8-bit hides the noise floor"}
 state_checks:
   linear_output: {method: "exposure E and 2E, 5-40 % of full scale", expect_ratio: [1.95, 2.05], lut_on_ratio: 1.41}
-  dark: {method: "lens cap on, 10 ms", black_dn: 194, read_noise_dn: 64}
+  dark: {method: "lens cap on, 10 ms, gain 0, black level 1", black_dn: 40, read_noise_dn: 2.4}
   settling: {expect_stale_frames: 0}
 open_questions:
   - "absolute light differed 3.6x between bench days at the same dimmer setting"

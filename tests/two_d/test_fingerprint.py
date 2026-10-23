@@ -35,7 +35,7 @@ def _scene(svc: TwoDService, kind: str) -> None:
 
 
 def test_fingerprint_recovers_the_sensor(svc: TwoDService, tmp_path: Path) -> None:
-    ses = FingerprintSession(svc, SIM, root=tmp_path / "fp")
+    ses = FingerprintSession(svc, SIM, root=tmp_path / "fp", reset=False)
     before = svc.get_settings(SIM).settings
     ident = ses.step_identity()
     assert ident.ok and ses.fmt == "Mono12"
@@ -98,7 +98,7 @@ def test_fingerprint_recovers_the_sensor(svc: TwoDService, tmp_path: Path) -> No
 
 
 def test_order_is_enforced(svc: TwoDService, tmp_path: Path) -> None:
-    ses = FingerprintSession(svc, SIM, root=tmp_path / "fp")
+    ses = FingerprintSession(svc, SIM, root=tmp_path / "fp", reset=False)
     with pytest.raises(InvalidRequestError, match="identity"):
         ses.step_dark()
     ses.step_identity()
@@ -464,7 +464,7 @@ def test_bench_light_ratio() -> None:
 def test_setups_run_each_bench_state_once(svc: TwoDService, tmp_path: Path) -> None:
     """One Run per bench state: cap (identity + darks ×3), diffuser (timing, flat ×3,
     noise), finish (user sets, report)."""
-    ses = FingerprintSession(svc, SIM, root=tmp_path / "fp")
+    ses = FingerprintSession(svc, SIM, root=tmp_path / "fp", reset=False)
     assert [s for s in ses.plan if ses.plan[s].active] == ["cap", "diffuser", "light_2", "finish"]
     assert ses.plan["cap"].label == "1. Lens cap on"
     assert ses.plan["cap"].measures == ("identity", "dark")
@@ -547,6 +547,6 @@ def test_flicker_stops_a_channel_sweep(tmp_roots: Path, monkeypatch: pytest.Monk
 
 
 def test_lit_measurements_respect_the_bench_minimum(svc: TwoDService, tmp_path: Path) -> None:
-    ses = FingerprintSession(svc, SIM, root=tmp_path / "fp")
+    ses = FingerprintSession(svc, SIM, root=tmp_path / "fp", reset=False)
     assert ses.min_exposure_us == 2000.0
     assert ses._lit_range()[0] >= 2000.0

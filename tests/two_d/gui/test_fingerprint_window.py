@@ -39,7 +39,7 @@ def set_scene(svc: TwoDService, kind: str) -> None:
 def main(qtbot: QtBot, fp_service: TwoDService, tmp_path: Path) -> Iterator[MainWindow]:
     win = MainWindow(fp_service)
     qtbot.addWidget(win)
-    win.worker.fingerprint_options = {"root": tmp_path / "fp"}
+    win.worker.fingerprint_options = {"root": tmp_path / "fp", "reset": False}  # sim set up below
     win.show()
     qtbot.waitUntil(lambda: win.camera_list_panel.camera_ids() == [SIM], timeout=WAIT_MS)
     open_sim(qtbot, win)

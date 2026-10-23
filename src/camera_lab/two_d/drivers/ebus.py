@@ -81,7 +81,7 @@ import numpy.typing as npt
 
 from camera_lab.core.logging import get_logger
 from camera_lab.two_d.backups import FeatureAccess, FeatureValue, RestoreReport, multipass_restore
-from camera_lab.two_d.drivers.base import Camera2D, Camera2DDriver
+from camera_lab.two_d.drivers.base import IDENTITY_NODES, Camera2D, Camera2DDriver
 from camera_lab.two_d.drivers.unpack import unpack_rgb10p32, unpack_rgb10v1, unpack_rgb12v1
 from camera_lab.two_d.errors import (
     CameraBusyError,
@@ -228,6 +228,13 @@ class EbusCamera(Camera2D):
         self._auto_fps = False
         self._fps_explicit = False
         self._settings: CameraSettings | None = None
+        # Discovery's "version" is DeviceVersion (JAI: 0.1.0.7); the firmware is
+        # DeviceFirmwareVersion (0.0.3.4) — live AP-3200T-PGE 2026-10-22.
+        with contextlib.suppress(Exception):  # best effort: identity only
+            if self._param("DeviceFirmwareVersion") is not None:
+                fw = str(self._get("DeviceFirmwareVersion")).strip()
+                if fw:
+                    self._info = info.model_copy(update={"firmware": fw})
 
     # ----------------------------------------------------------- plumbing
     @property
@@ -503,6 +510,31 @@ class EbusCamera(Camera2D):
                     "changed (verify the JAI start-up behaviour in its manual)"
                 )
             return {"slot": slot, "default": None, "stored_features": None, "notes": notes}
+
+    def identity_nodes(self) -> dict[str, str]:
+        with self._lock, self._guard():
+            out: dict[str, str] = {}
+            for name in IDENTITY_NODES:
+                if self._param(name) is None:
+                    continue
+                try:
+                    out[name] = str(self._get(name))
+                except _ParamError:
+                    continue
+            return out
+
+    def user_set_info(self) -> dict[str, Any]:
+        with self._lock, self._guard():
+            return {
+                "slots": list(self._entries("UserSetSelector")),
+                "boot_set_feature": self._param("UserSetDefault") is not None,
+                "boot_set": None,
+                "stored_features": None,
+                "notes": [
+                    "UserSetSave needs the stream stopped (live 2026-10-21)",
+                    "boots from User Set 1 after a save (power-cycle test 2026-10-21)",
+                ],
+            }
 
     def _free_run(self) -> None:
         """No enable node on the JAI: free-run = AcquisitionFrameRate at its maximum."""

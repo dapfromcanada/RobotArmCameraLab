@@ -21,6 +21,14 @@ very bright highlight that clips early (a lamp in view). Noise is seeded by
 ``(seed, frame_id)`` so every run is reproducible. ``defocus_sigma`` (px) blurs
 the scene for sharpness tests.
 
+Sensor model (Phase 11, :class:`SensorModel`, defaults = the values above): full
+well, read noise, dark current (e⁻/s, plus ``hot_pixels`` with 1000× dark
+current), pixel response non-uniformity ``prnu`` (σ of a fixed per-pixel gain)
+and ``vignetting`` (fractional fall-off at the corners, ``1 − v·r²``). The
+camera's ``scene`` switches between the chart (``"chart"``), a lens cap
+(``"cap"``: no light) and an even diffuser (``"flat"``: reflectance 0.8), so the
+fingerprint can be tested against known values.
+
 Formats: Mono8, Mono12 (uint16, native 0–4095), BayerRG8 (RGGB mosaic), RGB8.
 Changing the pixel format or the ROI size while streaming raises
 :class:`StreamingStateError`, like a real camera with ``TLParamsLocked``.
@@ -30,6 +38,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, ClassVar, Literal
 
@@ -67,6 +76,23 @@ SENSOR_HEIGHT = 768
 EXPOSURE_REF_US = 10_000.0
 FULL_WELL_E = 10_000.0
 READ_NOISE_E = 5.0
+FLAT_REFLECTANCE = 0.8
+HOT_PIXEL_FACTOR = 1000.0
+SceneKind = Literal["chart", "cap", "flat"]
+
+
+@dataclass(frozen=True)
+class SensorModel:
+    """Known sensor properties of the simulated camera (fingerprint tests)."""
+
+    full_well_e: float = FULL_WELL_E
+    read_noise_e: float = READ_NOISE_E
+    dark_current_e_s: float = 0.0
+    prnu: float = 0.0
+    vignetting: float = 0.0
+    hot_pixels: int = 0
+
+
 _REC709 = np.array([0.2126, 0.7152, 0.0722])
 
 
@@ -128,8 +154,11 @@ class SimulatedCamera(Camera2D):
         clock: Callable[[], datetime],
         width: int,
         height: int,
+        sensor: SensorModel | None = None,
     ) -> None:
         self._info = info
+        self.sensor = sensor or SensorModel()
+        self.scene: SceneKind = "chart"
         self._light = light
         self._seed = seed
         self.ambient = ambient
@@ -139,6 +168,7 @@ class SimulatedCamera(Camera2D):
         self._w, self._h = width, height
         self._scene = build_scene(width, height, hot_spot_pct)
         self._blur_cache: dict[float, npt.NDArray[np.float64]] = {}
+        self._pixel_gain, self._dark_factor = self._sensor_maps()
         self._settings = CameraSettings(
             exposure_us=5000.0,
             gain_db=0.0,
@@ -445,7 +475,28 @@ class SimulatedCamera(Camera2D):
         """``ambient + SimulatedLight.light_factor()``."""
         return self.ambient + (self._light.light_factor() if self._light is not None else 0.0)
 
+    def _sensor_maps(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+        """Fixed per-pixel gain (PRNU × vignetting) and dark-current factor (hot pixels)."""
+        h, w, sm = self._h, self._w, self.sensor
+        rng = np.random.default_rng([self._seed, 999_983])
+        gain = np.ones((h, w)) if sm.prnu <= 0 else rng.normal(1.0, sm.prnu, (h, w))
+        if sm.vignetting > 0:
+            yy, xx = np.mgrid[0:h, 0:w]
+            r2 = ((xx - (w - 1) / 2) / ((w - 1) / 2)) ** 2 + (
+                (yy - (h - 1) / 2) / ((h - 1) / 2)
+            ) ** 2
+            gain = gain * (1.0 - sm.vignetting * r2 / 2.0)  # r² = 2 at the corners
+        dark = np.ones((h, w))
+        if sm.hot_pixels > 0:
+            idx = rng.choice(h * w, size=sm.hot_pixels, replace=False)
+            dark.reshape(-1)[idx] = HOT_PIXEL_FACTOR
+        return gain, dark
+
     def _reflectance(self) -> npt.NDArray[np.float64]:
+        if self.scene == "cap":
+            return np.zeros_like(self._scene)
+        if self.scene == "flat":
+            return np.full_like(self._scene, FLAT_REFLECTANCE)
         sigma = float(self.defocus_sigma)
         if sigma <= 0:
             return self._scene
@@ -504,11 +555,17 @@ class SimulatedCamera(Camera2D):
             exposure = np.array(
                 [float(adv[f"prism.exposure_{c}_us"]) for c in ("red", "green", "blue")]
             )
-        electrons = refl * (exposure / EXPOSURE_REF_US) * self.light_factor() * FULL_WELL_E
-        electrons = np.minimum(electrons, FULL_WELL_E * (4.0 if hdr else 1.0))
-        noisy = rng.poisson(electrons).astype(np.float64)
-        noisy += rng.normal(0.0, READ_NOISE_E, size=noisy.shape)
-        level = noisy / FULL_WELL_E * 10 ** (s.gain_db / 20.0)
+        sm = self.sensor
+        pix = self._pixel_gain[r.y : r.y + r.height, r.x : r.x + r.width]
+        dark = self._dark_factor[r.y : r.y + r.height, r.x : r.x + r.width]
+        if refl.ndim == 3:
+            pix, dark = pix[..., None], dark[..., None]
+        electrons = refl * (exposure / EXPOSURE_REF_US) * self.light_factor() * FULL_WELL_E * pix
+        electrons = electrons + sm.dark_current_e_s * (np.asarray(exposure) / 1e6) * dark
+        electrons = np.minimum(electrons, sm.full_well_e * (4.0 if hdr else 1.0))
+        noisy = rng.poisson(np.maximum(electrons, 0.0)).astype(np.float64)
+        noisy += rng.normal(0.0, sm.read_noise_e, size=noisy.shape)
+        level = noisy / sm.full_well_e * 10 ** (s.gain_db / 20.0)
         wb = s.white_balance or {"red": 1.0, "green": 1.0, "blue": 1.0}
         if fmt == "RGB8":
             level = level * np.array([wb["red"], wb["green"], wb["blue"]])
@@ -598,6 +655,7 @@ class SimulatedCameraDriver(Camera2DDriver):
         clock: Callable[[], datetime] = _utc_now,
         width: int = SENSOR_WIDTH,
         height: int = SENSOR_HEIGHT,
+        sensor: SensorModel | None = None,
     ) -> None:
         if width < 16 or height < 16 or width % 16 or height % 2:
             raise ValueError("sensor width must be a multiple of 16 and height even, both >= 16")
@@ -609,6 +667,7 @@ class SimulatedCameraDriver(Camera2DDriver):
         self.hot_spot_pct = hot_spot_pct
         self.clock = clock
         self.width, self.height = width, height
+        self.sensor = sensor
 
     def discover(self) -> list[CameraInfo]:
         """Return the simulated camera."""
@@ -639,4 +698,5 @@ class SimulatedCameraDriver(Camera2DDriver):
             clock=self.clock,
             width=self.width,
             height=self.height,
+            sensor=self.sensor,
         )

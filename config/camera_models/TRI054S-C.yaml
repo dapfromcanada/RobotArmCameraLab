@@ -1,0 +1,116 @@
+# Camera white paper, machine-readable twin of TRI054S-C.md. DRAFT v8, 2026-10-23.
+# null = to be measured by the next fingerprint run.
+schema_version: 1
+model: TRI054S-C
+vendor: Lucid Vision Labs
+firmware_tested: ["1.138.0.0"]
+sensor:
+  name: Sony IMX490
+  megapixels: 5.4
+  colour: bayer_rggb
+  shutter: rolling
+  hdr:
+    channels: 4
+    merge: on-chip, linear 24-bit
+    dynamic_range_db_min: 120
+    factory_channel_gains_db: [19.8, 4.2, 29.4, 4.2]
+signal_path:
+  lut_default: {enabled: true, tone_mapping: GammaPointFive}
+  colour_transformation_default: true
+outputs:
+  linear: {pixel_format: BayerRG24, lut: "off", colour_transformation: "off", gain_per_exposure_doubling: 2.00}
+  lut_on: {gain_per_exposure_doubling: 1.41}
+  single_channel: {hdr_output: [HDRChannel0, HDRChannel1, HDRChannel2, HDRChannel3], bits: 12}
+  black_level_linear_dn: 194          # internal; BlackLevel does not move it
+  black_level_control: {range_pct: [0, 12.5], default: 0, affects: single-channel outputs only}
+controls:
+  exposure_us_min: 86.3
+  exposure_longer_than_frame_lowers_fps: true
+  stream_stop_required: [HDROutput, LUTEnable, PixelFormat]
+  stream_locked_writes: ignored silently
+  hdr_tuning_makes_exposure_gain_read_only: true
+  user_sets: {slots: [Default, UserSet1, UserSet2], boot_set: true, stores_hdr: false}
+  power_up: {hdr_tuning: "off", channel_gains: factory}
+timing:
+  fps_full_frame: {BayerRG8: 20.8, BayerRG24: 6.93}   # 24-bit: GigE bandwidth limit
+  exposure_to_fps: {61000: 16, 122000: 8, 244000: 4}
+  triggered_max_rate_factor: 0.5
+  trigger_to_image_ms: null
+  settle_frame_periods: 2
+  row_time_us: 23.5                   # rolling shutter, from 120 Hz flicker bands
+  full_frame_readout_ms: 44
+setting_names:                        # camera_lab key -> GenICam node
+  exposure_us: ExposureTime
+  gain_db: Gain
+  pixel_format: PixelFormat
+  frame_rate_hz: AcquisitionFrameRate
+  white_balance: BalanceRatio[BalanceRatioSelector]
+  hdr.enabled: HDRTuningEnable
+  hdr.output: HDROutput
+  hdr.enhancement: HDRImageEnhancementEnable
+  hdr.clamping: HDRDigitalClampingEnable
+  hdr.chN.exposure_us: HDRChannelExposureTime[HDRTuningChannelSelector=N]
+  hdr.chN.gain_db: HDRChannelAnalogGain[HDRTuningChannelSelector=N]
+  lut.enabled: LUTEnable
+  lut.tone_mapping: LUTToneMapping
+  color.transformation: ColorTransformationEnable
+  black.level: BlackLevel
+performance:                          # linear 24-bit output, Kowa 8 mm f/1.4
+  full_scale_dn: 16777215
+  runs: 1
+  units: 1
+  black_dn: 194
+  black_fraction: 0.0000116
+  read_noise_dn: 64
+  read_noise_fraction: 0.0000038
+  row_noise_dn: 8                     # temporal, dark, independent of exposure
+  dynamic_range_db: 108.4             # saturation / read noise; datasheet says > 120
+  dynamic_range_stops: 18.0
+  noise_model: {formula: "sigma^2 = a + b*signal", a_dn2: null, b_dn: null}
+  linearity_error_pct: 0.24
+  snr_vs_signal:                      # level fraction of full scale -> SNR (one run, 2026-10-23)
+    monotonic: false
+    points: {0.0008: 6, 0.005: 25, 0.01: 31, 0.04: 67, 0.082: 96, 0.092: 63, 0.10: 27, 0.108: 21, 0.117: 22, 0.20: 31, 0.29: 38, 0.44: 47, 0.59: 55, 0.74: 62}
+    best: {level: 0.082, snr: 96}
+    worst_after_handover: {level: 0.108, snr: 21}
+  quantization:                       # step between possible values vs level
+    - {from_level: 0.0, step_dn: 26, effective_bits: 19.3}
+    - {from_level: 0.01, step_dn: 577, effective_bits: 14.8}
+    - {from_level: 0.10, step_dn: 4157, effective_bits: 12.0}
+  dark_current_dn_s: 0
+  prnu_pct: 1.3
+  vignetting_corner_ratio: 0.90       # lens- and iris-dependent
+  colour: {light: "white LED panels (bench)", r_over_g: null, b_over_g: null, green_imbalance_pct: null}
+  repeatability_spread_pct: null
+hdr_channels:
+  - {name: ch0, subpixel: large, conversion_gain: high, sensitivity_vs_ch3: 6200, gain_dn_per_e: null, full_well_e: null, read_noise_dn: 67}
+  - {name: ch1, subpixel: large, conversion_gain: low, sensitivity_vs_ch3: 280, gain_dn_per_e: null, full_well_e: null, read_noise_dn: 20}
+  - {name: ch2, subpixel: small, conversion_gain: high, sensitivity_vs_ch3: 36, gain_dn_per_e: null, full_well_e: null, read_noise_dn: 231}
+  - {name: ch3, subpixel: small, conversion_gain: low, sensitivity_vs_ch3: 1, gain_dn_per_e: null, full_well_e: null, read_noise_dn: 71, note: "two runs disagree 9x"}
+limitations:
+  - "rolling shutter: moving subjects skew (about 44 ms top to bottom)"
+  - "light ripple faster than the exposure gives row bands: period_rows x 23.5 us = ripple period; whole ripple periods of exposure cancel it"
+  - non-linear by default (factory LUT gamma 0.5)
+  - stream-locked controls are ignored, not refused, while streaming
+  - HDR settings do not survive a power cycle via user sets
+  - frame rate falls when exposure exceeds one frame period and halves with triggering
+  - 8-bit output hides the noise floor
+diagnostics:
+  - {signature: "doubling exposure gives x1.41", meaning: "factory LUT on"}
+  - {signature: "setting reads back but image unchanged", meaning: "written while streaming"}
+  - {signature: "HDR off, factory channel values after power cycle", meaning: "normal: user sets do not store HDR"}
+  - {signature: "ExposureTime / Gain read-only", meaning: "HDR tuning on"}
+  - {signature: "frame rate lower than expected", meaning: "exposure > one frame, or triggered"}
+  - {signature: "moving horizontal bands", meaning: "flickering light (rolling shutter)"}
+  - {signature: "slanted edges", meaning: "subject moved during exposure/readout"}
+  - {signature: "cap-on black or read noise far off", meaning: "fault or heat (DeviceTemperature)"}
+  - {signature: "hot pixels far above fingerprint", meaning: "sensor ageing or damage"}
+  - {signature: "8-bit output looks noise-free", meaning: "normal: 8-bit hides the noise floor"}
+state_checks:
+  linear_output: {method: "exposure E and 2E, 5-40 % of full scale", expect_ratio: [1.95, 2.05], lut_on_ratio: 1.41}
+  dark: {method: "lens cap on, 10 ms", black_dn: 194, read_noise_dn: 64}
+  settling: {expect_stale_frames: 0}
+open_questions:
+  - "absolute light differed 3.6x between bench days at the same dimmer setting"
+  - "HDR channel photon transfer: earlier runs flicker-contaminated; re-measure with the floods recipe"
+  - "temperature behaviour not measured"

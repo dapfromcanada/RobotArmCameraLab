@@ -413,3 +413,11 @@ def test_through_service(tmp_roots: Any) -> None:
     finally:
         svc.shutdown()
     assert sdk.connected[-1] in sdk.disconnected
+
+
+def test_firmware_is_device_firmware_version_not_discovery_version(cam: EbusCamera) -> None:
+    # live AP-3200T-PGE 2026-10-22: discovery "version" 0.1.0.7 is DeviceVersion
+    assert cam.info.firmware == "0.0.3.4"
+    nodes = cam.identity_nodes()
+    assert nodes["DeviceFirmwareVersion"] == "0.0.3.4"
+    assert nodes["DeviceVersion"] == "0.1.0.7"

@@ -637,6 +637,22 @@ No new packages. AprilTag 36h11 comes from `cv2.aruco` (OpenCV 4.11.0, verified:
 7. **User sets and power-up:** what a user set stores (`UserSetFeatureSelector` where it exists), whether a save needs the stream stopped, which set the camera boots from (Derek power-cycles; camera_lab reads it raw).
 8. **Report and fingerprint file:** `WS/config/camera_fingerprints/<serial>/fingerprint.yaml` (+ `dark_*.npz`, `flat.npz`), never overwritten (dated versions). The report shows every table and plot; Derek reviews it.
 
+### Strict procedure (Derek, 2026-10-22: "humans are unpredictable — be clear, add steps if needed")
+The fingerprint of a camera **model** is the reference the local AI agent uses for that model, so every run must be repeatable. The human never improvises a setting; every setting is dictated and then **measured**.
+- **Each fingerprint records first:** camera model, serial number and firmware (`DeviceFirmwareVersion`, not the discovery "version"), then the lens and the iris per step.
+- **Fixed reference state** for the whole run: the lens named in the recipe, **iris fully open** (a mechanical end stop, so repeatable), the bench light at the recipe's reference setting. Focus is not needed (the cap and the diffuser make focus irrelevant; the diffuser works because it is out of focus).
+- **Checklists:** every step lists what the human must have done (e.g. "Lens cap on", "Iris set to f/8"); **Run** is enabled only when every item is ticked, and the ticks reset after a STOP.
+- **Light recipe per camera model** (in the camera profile, `fingerprint:`): the lens, the reference light (dimmer setting + f-number) and, for HDR cameras, up to four **channel stages** — each a dimmer setting + f-number + the channels measured there. A stage is its own step row (5a–5d). The **bench light table** (`config/fingerprint_bench.yaml`: relative light per dimmer setting, measured 2026-10-22; the lenses and their marked f-stops) turns a stage into an expected light level.
+- **Measured verification:** before a stage measures anything, camera_lab measures the light (combined output, linear) and compares it with the recipe's expectation (dimmer ratio × (f_ref / f)²). Outside ±35 % → STOP "the light is N× what dimmer D, f/F should give: check the dimmer and the iris". A channel that still does not fit in a correct stage → STOP "the recipe is off by N× (≈ k f-stops): send this message to the engineer" (the human does not adjust on their own).
+- **Light back:** after the stages, a step requires the reference state again (iris fully open, reference dimmer) and verifies it within ±12 % of the light measured in the flat step; nothing after it runs until it passes.
+- **No recipe** (a new model): HDR channels run in **discovery mode** — one stage that reports, per channel, how much less/more light it needs (as a factor and in f-stops). Those numbers become the model's recipe.
+- **Messages are copyable** (selectable text and a "Copy messages" button) for email or chat.
+- **One row per bench state** (Derek 2026-10-22: "from a human's point of view these are one test"): 1 lens cap on (identity, darks), 2 diffuser on at the reference (timing, flat, the HDR channels that need the reference light, noise vs gain), 3–5 one row per iris/light change of the recipe (its HDR channels), last: iris back open (light check, user sets, report). The cap goes on and off once, the diffuser once; one Run per row, however long it takes. Unused rows are not shown.
+- **Repeats:** darks, the flat and each HDR channel are measured **3×** in one Run; the median is used and the spread reported; > 10 % spread → "NOT repeatable" in the row and the report (photon-transfer read noise is excluded from the check — it is a shot-noise-dominated intercept; the darks measure read noise directly).
+- **Skip:** only a light-change row (HDR channels) can be skipped, after a STOP, with a reason recorded in the report.
+- **Modules by sensor type** (Derek 2026-10-22): every camera gets the **core** (cap: identity, darks; diffuser: timing, flat, noise vs gain; finish: user sets, report) so cameras stay comparable; the profile's `characteristics` add modules — **colour planes** for Bayer and prism sensors (each raw site / sensor: response relative to green, temporal noise, PRNU; Bayer green imbalance Gr − Gb; same diffuser frames, no extra human setup), **HDR channels** where `hdr_capable`. Identity flags a profile whose declared sensor colour does not match the camera's raw format. **Prism alignment is not tested:** assumed good (factory-aligned; Derek 2026-10-23). Code: `two_d/fingerprint/` — `common` (types, constants), `base` (camera helpers), `plan` (rows from sensor type + recipe), `core`, `colour`, `hdr`, `report`, `session` (ties them together).
+- **Lens transmission:** fast lenses pass more light when stopped down than the nominal (f_open / f)² (Kowa 8 mm: f/2.8 = 0.357 of open, not 0.25); the bench file keeps measured transmission per stop.
+
 ### Bench vs. machine (Derek, 2026-10-21)
 The bench proves the workflow. Intrinsic and extrinsic calibration is done **on the machine, after the cameras are mounted** (separate calibration app). So the fingerprint marks each result:
 - **Camera-only — carries over:** black level, read noise, dark fixed-pattern noise, hot pixels, system gain, full well, linearity, noise vs gain and gain-mode switches, timing / settle periods, stream-locked features, user-set and power-up behaviour.
@@ -658,6 +674,40 @@ The bench proves the workflow. Intrinsic and extrinsic calibration is done **on 
 - [ ] All gates pass.
 
 ---
+
+## Phase 12 — Site light assessment (production tool)
+*Added by Derek, 2026-10-23: "this is really the biggest production tool".*
+**Goal:** on a machine there is no test jig — only the camera, whatever it looks at, and the
+camera model's bench baseline (`config/camera_models/<model>.md` white paper +
+`<model>.yaml` sheet, from the fingerprint). The tool measures the real scene and turns the
+numbers into verdicts and actions by comparing them with that baseline.
+- **Checks** (pass / warn / fail / info, each with the value, the model's expectation and the
+  action): camera state (design mode; linear output: exposure E vs 2E gives × 2.00, × 1.41 =
+  gamma LUT); flicker (row banding on a rolling shutter, frame-to-frame changes; band period ×
+  the sheet's row time = ripple frequency → mains 100/120 Hz: exposures in whole flicker periods
+  or DC light); brightness (exposure for the model's best-SNR level within the budget = one
+  frame at the camera's maximum frame rate, or a given maximum → "N× more / less light", never
+  gain); SNR at that exposure vs the model's SNR curve; range (clipped, in the noise floor,
+  scene contrast vs the camera's dynamic range); distribution (3 × 3 grid, information only).
+- **Interfaces:** `camera-lab two-d assess-light <camera>` (CLI), MCP tools
+  `assess_site_light` and `get_camera_white_paper` (added to the reviewed tool surface:
+  **Derek to review**). The camera is backed up and restored unless `apply` is set.
+  Reports: `<data_root>/two_d/site_light/<serial>/<stamp>/report.json + report.md`.
+- **First live result (TRI054S-C, floods + acrylic, 2026-10-23):** linear × 1.99, steady light,
+  SNR 82 measured vs ≈ 81 predicted by the white paper; found the 24-bit output's 6.93 fps
+  GigE limit (exposure budget 144 ms).
+- **Real scene (2026-10-23, shiny camera + lens, floods, f/2):** SNR is measured **per
+  brightness band** (robust σ of the frame difference per band), because a non-uniform scene
+  mixes levels: the white paper's curve then predicts the camera at 13 levels at once —
+  measured 1.03× the model (0.56 %: 26 vs 26, 2.3 %: 48 vs 47). Static edges cancel; moving
+  edges (vibration) read as noise, so the advice names vibration first.
+- **Mains light (2026-10-23, room lights, floods off):** flicker is checked at a short
+  exposure (1 ms: detection and frequency, even on a dim scene) and at the working exposure
+  (what remains). Detected "≈ 114 Hz (60 Hz mains)" — 120 Hz, coarse because a frame holds
+  few cycles — averaging out at the working 208 ms; the recommended exposure snapped to
+  100.00 ms = 12 × 8.33 ms; SNR again 1.01× the white paper at 11 levels.
+- **Next:**
+  the "fresh agent" test (an agent with only camera_lab + the white paper sets the camera up).
 
 ## Deferred (keep the interfaces open — do not design these out)
 | Feature | Hook already in place |

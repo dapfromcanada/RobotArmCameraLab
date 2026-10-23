@@ -151,3 +151,12 @@ def pack_rgb12v1(rgb: npt.NDArray[Any]) -> npt.NDArray[np.uint8]:
     out[:, 1] = (v[:, 0] & 0xF) | ((v[:, 1] & 0xF) << 4)
     out[:, 2] = v[:, 1] >> 4
     return out.reshape(-1)
+
+
+def unpack_24(data: npt.NDArray[np.uint8], count: int) -> npt.NDArray[np.uint32]:
+    """Unpack ``count`` 24-bit pixels (3 bytes, little-endian; Lucid Mono24/BayerRG24)."""
+    if data.size < count * 3:
+        raise ValueError(f"24-bit payload has {data.size} bytes, need {count * 3}")
+    t = data[: count * 3].reshape(count, 3).astype(np.uint32)
+    out = np.asarray(t[:, 0] | (t[:, 1] << 8) | (t[:, 2] << 16), dtype=np.uint32)
+    return out

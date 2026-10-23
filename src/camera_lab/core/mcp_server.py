@@ -103,6 +103,10 @@ Workflow
 1. list_cameras, then get_camera_profile(camera_id): it says what the camera is (rolling or
    global shutter, Bayer or 3-sensor prism, HDR) and its modes. Each mode names its tuning
    strategy and the `knobs` (settings) that make sense to change in that mode.
+   get_camera_white_paper(camera_id): the camera model's bench white paper — how it works,
+   its quirks, measured performance and how to check its state. Read it first.
+   assess_site_light(camera_id): checks the light on the real scene against that baseline
+   (linear output, flicker, enough light for the best SNR, clipping) and says what to change.
 2. set_camera_mode(camera_id, mode) if you want a mode other than the current one.
 3. start_tuning_run(camera_id, goal, max_steps): returns run_id, the step budget, current
    settings, effective ranges and the scoring targets. Every capture, settings change and
@@ -484,6 +488,55 @@ def create_server(
         return body()
 
     @server.tool(structured_output=False)
+    def get_camera_white_paper(camera_id: CameraId) -> Any:
+        """The camera model's white paper (what it is, how it behaves, measured performance,
+        diagnostics) and its machine-readable sheet. Read it before setting up a camera."""
+
+        @guarded("get_camera_white_paper", "camera_id", log_call=True)
+        def body(state: AppState, camera_id: str) -> dict[str, Any]:
+            from camera_lab.two_d.camera_models import load_model_sheet, models_dir
+
+            serial = _ensure_open(state, camera_id)
+            model = state.service._open[serial].camera.info.model
+            sheet = load_model_sheet(model)
+            if sheet is None:
+                return _ok(model=model, available=False, white_paper=None, sheet=None)
+            md = models_dir() / f"{sheet.model}.md"
+            text = md.read_text()[:200_000] if md.is_file() else None
+            return _ok(
+                model=model,
+                available=True,
+                white_paper=text,
+                sheet=sheet.model_dump(mode="json"),
+            )
+
+        return body(camera_id=camera_id)
+
+    @server.tool(structured_output=False)
+    def assess_site_light(
+        camera_id: CameraId,
+        max_exposure_us: Annotated[float, Field(gt=0, le=10_000_000)] | None = None,
+        apply: bool = False,
+    ) -> Any:
+        """Assess the light on whatever the camera sees, against the camera model's bench
+        baseline: camera state (linear output), flicker, brightness vs the best-SNR level within
+        the exposure budget (default one frame), SNR, clipping, distribution. Each check has a
+        status and an action. apply=true leaves the camera at the recommended exposure;
+        otherwise it is restored. Takes about a minute."""
+
+        @guarded("assess_site_light")
+        def body(state: AppState) -> dict[str, Any]:
+            from camera_lab.two_d.site.light import assess_light
+
+            serial = _ensure_open(state, camera_id)
+            rep = assess_light(
+                state.service, serial, actor=ACTOR, max_exposure_us=max_exposure_us, apply=apply
+            )
+            return _ok(summary=rep.summary(), report=rep.model_dump(mode="json"))
+
+        return body()
+
+    @server.tool(structured_output=False)
     def list_presets(camera_id: CameraId | None = None) -> Any:
         """List saved presets (all cameras or one)."""
 
@@ -553,6 +606,8 @@ TOOL_NAMES: tuple[str, ...] = (
     "start_tuning_run",
     "finish_tuning_run",
     "run_classic_tune",
+    "get_camera_white_paper",  # added 2026-10-23 (read-only) — pending Derek's review
+    "assess_site_light",  # added 2026-10-23 (camera changes, restored) — pending Derek's review
     "list_presets",
     "get_preset",
     "apply_preset",

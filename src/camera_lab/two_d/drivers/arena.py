@@ -95,8 +95,8 @@ import numpy.typing as npt
 
 from camera_lab.core.logging import get_logger
 from camera_lab.two_d.backups import FeatureAccess, FeatureValue, RestoreReport, multipass_restore
-from camera_lab.two_d.drivers.base import Camera2D, Camera2DDriver
-from camera_lab.two_d.drivers.unpack import unpack_10p, unpack_12p
+from camera_lab.two_d.drivers.base import IDENTITY_NODES, Camera2D, Camera2DDriver
+from camera_lab.two_d.drivers.unpack import unpack_10p, unpack_12p, unpack_24
 from camera_lab.two_d.errors import (
     CameraClosedError,
     CameraDisconnectedError,
@@ -133,6 +133,9 @@ SUPPORTED_FORMATS = (
     "RGB8",
     "RGB12p",
     "RGB16",
+    # 24-bit linear HDR (TRI054S, Lucid's raw path: LUT off): unpacked to uint32
+    "Mono24",
+    "BayerRG24",
 )
 STREAM_BUFFERS = 8
 #: Discovery wait. arena_api 2.10.0 defaults to 1000 ms (the 2.9.5 docs say 100 ms)
@@ -241,6 +244,11 @@ class ArenaCamera(Camera2D):
             return self._nm.get_node(name)
         except Exception:
             return None
+
+    def _writable_node(self, name: str) -> Any:
+        """The node if it is readable and writable (a real, settable feature)."""
+        node = self._readable_node(name)
+        return node if node is not None and self._attr(node, "is_writable") else None
 
     def _readable_node(self, name: str) -> Any:
         """The node, or None if it is missing or not readable.
@@ -1016,12 +1024,57 @@ class ArenaCamera(Camera2D):
             stored = list(self._attr(feats, "enumentry_names") or []) if feats is not None else None
             return {"slot": slot, "default": default, "stored_features": stored, "notes": []}
 
+    def identity_nodes(self) -> dict[str, str]:
+        with self._lock, self._guard():
+            out: dict[str, str] = {}
+            for name in IDENTITY_NODES:
+                n = self._readable_node(name)
+                if n is not None:
+                    out[name] = str(n.value)
+            return out
+
+    def user_set_info(self) -> dict[str, Any]:
+        with self._lock, self._guard():
+            sel = self._node("UserSetSelector")
+            feats = self._node("UserSetFeatureSelector")
+            boot = self._node("UserSetDefault")
+            return {
+                "slots": list(self._attr(sel, "enumentry_names") or []) if sel is not None else [],
+                "boot_set_feature": boot is not None,
+                "boot_set": str(boot.value) if boot is not None else None,
+                "stored_features": list(self._attr(feats, "enumentry_names") or [])
+                if feats is not None
+                else None,
+                "notes": ["feature persistence (backup) needs the stream paused"],
+            }
+
     # ------------------------------------------------------ HDR (advanced)
+    #: On/off features (advanced settings "off" / "on").
     _HDR_FLAGS: ClassVar[dict[str, str]] = {
         "hdr.enabled": "HDRTuningEnable",
         "hdr.enhancement": "HDRImageEnhancementEnable",
         "hdr.clamping": "HDRDigitalClampingEnable",
+        # TRI054S default: a gamma-0.5 display LUT on (LUTToneMapping GammaPointFive);
+        # Lucid's raw path: BayerRG24 with the LUT and colour transformation off
+        # (Lucid KB "Using LUCID's TRI054S IMX490 in ArenaView" / "Tonemapping images").
+        "lut.enabled": "LUTEnable",
+        "color.transformation": "ColorTransformationEnable",
     }
+    #: Choice features (advanced settings with the camera's entry names).
+    _ENUMS: ClassVar[dict[str, str]] = {
+        "hdr.output": "HDROutput",
+        "lut.tone_mapping": "LUTToneMapping",
+    }
+    #: Numeric features: advanced name → (node, unit). BlackLevel is 0 by default on the
+    #: TRI054S-C (dark noise clipped at 0); the fingerprint raises it (live range 0–12.5).
+    _NUMERIC: ClassVar[dict[str, tuple[str, str]]] = {"black.level": ("BlackLevel", "%")}
+    #: Lucid KB: "You must stop image acquisition before changing" these.
+    _STREAM_STOP: ClassVar[frozenset[str]] = frozenset({"hdr.output", "lut.enabled"})
+
+    def _check_stream_stop(self, key: str) -> None:
+        """Refuse a change the camera ignores while acquiring (it used to pass silently)."""
+        if self._streaming and key in self._STREAM_STOP:
+            raise StreamingStateError(f"stop the stream before changing {key}")
 
     def _hdr_channels(self) -> range:
         sel = self._node("HDRTuningChannelSelector")
@@ -1043,13 +1096,27 @@ class ArenaCamera(Camera2D):
         """HDR settings (live TRI054S-C 2026-10-21; manual HDR Control L2165 lists names only)."""
         specs: dict[str, SettingSpec] = {}
         for key, node in self._HDR_FLAGS.items():
-            if self._node(node) is not None:
-                specs[key] = SettingSpec(name=key, kind="enum", options=("off", "on"))
-        out = self._node("HDROutput")
-        if out is not None and self._attr(out, "enumentry_names"):
-            specs["hdr.output"] = SettingSpec(
-                name="hdr.output", kind="enum", options=tuple(out.enumentry_names)
-            )
+            if self._readable_node(node) is not None:
+                specs[key] = SettingSpec(
+                    name=key,
+                    kind="enum",
+                    options=("off", "on"),
+                    requires_stream_stop=key in self._STREAM_STOP,
+                )
+        for key, node in self._ENUMS.items():
+            n = self._readable_node(node)
+            if n is not None and self._attr(n, "enumentry_names"):
+                specs[key] = SettingSpec(
+                    name=key,
+                    kind="enum",
+                    options=tuple(n.enumentry_names),
+                    requires_stream_stop=key in self._STREAM_STOP,
+                )
+        for key, (node, unit) in self._NUMERIC.items():
+            if self._writable_node(node) is not None:
+                num = self._num_spec(key, node, unit=unit)
+                if num is not None:
+                    specs[key] = num
         fps = self._fps_nodes()
         fps_min = self._attr(fps[1], "min") if fps is not None else None
         for ch in self._hdr_channels():
@@ -1071,9 +1138,14 @@ class ArenaCamera(Camera2D):
             n = self._node(node)
             if n is not None and self._attr(n, "is_readable"):
                 out[key] = "on" if n.value else "off"
-        n = self._node("HDROutput")
-        if n is not None:
-            out["hdr.output"] = str(n.value)
+        for key, node in self._ENUMS.items():
+            n = self._readable_node(node)
+            if n is not None:
+                out[key] = str(n.value)
+        for key, (node, _unit) in self._NUMERIC.items():
+            n = self._writable_node(node)
+            if n is not None:
+                out[key] = float(n.value)
         for ch in self._hdr_channels():
             with self._hdr_channel(ch):
                 for suffix, node in (
@@ -1099,6 +1171,7 @@ class ArenaCamera(Camera2D):
                         raise ValueError(f"{key} must be 'off' or 'on'")
                     node = self._nm.get_node(self._HDR_FLAGS[key])
                     if bool(node.value) != (value == "on"):
+                        self._check_stream_stop(key)
                         node.value = value == "on"
                     results.append(
                         FieldResult(
@@ -1108,9 +1181,12 @@ class ArenaCamera(Camera2D):
                             value="on" if node.value else "off",
                         )
                     )
-                elif key == "hdr.output":
-                    node = self._nm.get_node("HDROutput")
+                elif key in self._NUMERIC:
+                    results.append(self._set_number(field, self._NUMERIC[key][0], float(value)))
+                elif key in self._ENUMS:
+                    node = self._nm.get_node(self._ENUMS[key])
                     if node.value != value:
+                        self._check_stream_stop(key)
                         node.value = value
                     results.append(
                         FieldResult(
@@ -1341,6 +1417,8 @@ def buffer_to_array(buf: Any, pixel_format: str) -> npt.NDArray[Any]:
     raw = np.ctypeslib.as_array(ptr, shape=(n,)).copy()  # copy before requeue
     count = w * h * ch
     shape = (h, w, 3) if ch == 3 else (h, w)
+    if pixel_format.endswith("24"):
+        return unpack_24(raw, count).reshape(shape)
     if pixel_format.endswith("12p"):
         return unpack_12p(raw, count).reshape(shape)
     if pixel_format.endswith("10p"):

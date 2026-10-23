@@ -38,6 +38,7 @@ FORMATS = [
     "BayerRG8",
     "BayerRG12p",
     "BayerRG16",
+    "BayerRG24",
     "RGB8",
     "RGB12p",
     "RGB16",
@@ -153,6 +154,15 @@ class FakeNodeMap:
             n("HDRChannelAnalogGain", None, lo=0.0, hi=None)
             n("HDRImageEnhancementEnable", True)
             n("HDRDigitalClampingEnable", True)
+            # factory display LUT (live TRI054S-C 2026-10-22): gamma 0.5, colour transform on
+            n("LUTEnable", True)
+            n(
+                "LUTToneMapping",
+                "GammaPointFive",
+                entries=["Linear", "Custom", "GammaPointTwo", "GammaPointFive", "GammaPointSix"],
+            )
+            n("ColorTransformationEnable", True)
+        n("BlackLevel", 0.0, lo=0.0, hi=12.503)
         self.hdr_exposure = [10000.472] * 4
         self.hdr_gain = [19.8, 4.2, 29.4, 4.2]
         self.hdr_gain_max = [30.0, 14.4, 38.4, 18.0]  # live ranges per channel
@@ -197,6 +207,8 @@ class FakeNodeMap:
             entries=["ExposureTime", "Gain", "BalanceRatio", "PixelFormat", "HDROutput"],
         )
         n("TimestampLatchValue", 0, writable=False)
+        n("DeviceFirmwareVersion", "1.138.0.0", writable=False)  # live TRI054S-C 2026-10-22
+        n("DeviceVersion", "K7A4W", writable=False)
 
     def _add(self, name: str, value: Any, **kw: Any) -> None:
         setattr(self, "_n_" + name, FakeNode(self, name, value, **kw))
@@ -361,10 +373,14 @@ class FakeBuffer:
 def expected_image(fmt: str, width: int, height: int, level: int) -> np.ndarray:
     """The deterministic image the fake device sends (a ramp + constant level)."""
     ch = 3 if fmt.startswith("RGB") else 1
-    bits = 8 if fmt.endswith("8") else 12 if fmt.endswith("12p") else 16
-    ramp = (np.arange(width * height * ch, dtype=np.uint32) * 7 + level) % (1 << bits)
+    bits = (
+        8 if fmt.endswith("8") else 12 if fmt.endswith("12p") else 24 if fmt.endswith("24") else 16
+    )
+    step = 70_001 if bits == 24 else 7  # exercise all three bytes of 24-bit pixels
+    ramp = (np.arange(width * height * ch, dtype=np.uint64) * step + level) % (1 << bits)
     shape = (height, width, 3) if ch == 3 else (height, width)
-    return ramp.astype(np.uint8 if bits == 8 else np.uint16).reshape(shape)
+    dtype = np.uint8 if bits == 8 else np.uint32 if bits == 24 else np.uint16
+    return ramp.astype(dtype).reshape(shape)
 
 
 class FakeDevice:
@@ -427,7 +443,9 @@ class FakeDevice:
         fmt = nm["PixelFormat"]._value
         w, h = nm["Width"]._value, nm["Height"]._value
         img = expected_image(fmt, w, h, self.frame_id)
-        if fmt.endswith("12p"):
+        if fmt.endswith("24"):  # 3 bytes per pixel, little-endian
+            data = img.astype("<u4").view(np.uint8).reshape(-1, 4)[:, :3].tobytes()
+        elif fmt.endswith("12p"):
             data = pack_12p(img.reshape(-1)).tobytes()
         elif fmt.endswith("16"):
             data = img.astype("<u2").tobytes()

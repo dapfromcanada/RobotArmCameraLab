@@ -10,6 +10,7 @@ import pytest
 
 from camera_lab.core.lights import LightService, SimulatedLight
 from camera_lab.core.safety import load_safety_limits
+from camera_lab.two_d.camera_config import load_cameras_config
 from camera_lab.two_d.drivers import arena as arena_mod
 from camera_lab.two_d.drivers.arena import ArenaCamera, ArenaDriver, buffer_to_array
 from camera_lab.two_d.drivers.unpack import pack_10p, pack_12p, unpack_10p, unpack_12p
@@ -192,6 +193,8 @@ def test_capabilities_from_node_map(cam: ArenaCamera) -> None:
         "RGB8",
         "RGB12p",
         "RGB16",
+        "Mono24",
+        "BayerRG24",
     )
     assert caps["roi_width"].increment == 4 and caps["roi_width"].max == 2880
     assert caps["roi_height"].increment == 2 and caps["roi_height"].max == 1860
@@ -646,3 +649,73 @@ def test_hdr_mode_no_readback_warning_for_locked_gain(tmp_roots: Any) -> None:
         assert res.settings.advanced["hdr.ch0.exposure_us"] == 120_000
     finally:
         svc.shutdown()
+
+
+@pytest.mark.parametrize("fmt", ["BayerRG24", "Mono24"])
+def test_24bit_linear_hdr_formats(cam: ArenaCamera, system: FakeSystem, fmt: str) -> None:
+    """TRI054S raw path (Lucid: BayerRG24, LUT off): 3-byte pixels → uint32, bit depth 24."""
+    cam.apply(CameraSettingsPatch(pixel_format=fmt, roi=ROI(x=0, y=0, width=64, height=32)))
+    cam.start_stream()
+    f = cam.grab()
+    assert f.data.dtype == np.uint32 and f.bit_depth == 24
+    assert np.array_equal(f.data, expected_image(fmt, 64, 32, f.frame_id))
+    assert int(f.data.max()) > 1 << 16  # the top byte is really used
+
+
+def test_stream_locked_hdr_settings_are_refused_not_ignored(cam: ArenaCamera) -> None:
+    """Lucid KB: HDROutput / LUTEnable need the stream stopped; the camera ignored them."""
+    cam.start_stream()
+    res = cam.apply(
+        CameraSettingsPatch(advanced={"hdr.output": "HDRChannel3", "lut.enabled": "off"})
+    )
+    by = _by(res)
+    assert by["advanced.hdr.output"].status == "rejected"
+    assert "stop the stream" in (by["advanced.hdr.output"].reason or "")
+    assert by["advanced.lut.enabled"].status == "rejected"
+    caps = cam.capabilities()
+    assert caps["hdr.output"].requires_stream_stop and caps["lut.enabled"].requires_stream_stop
+    assert caps["lut.tone_mapping"].options[0] == "Linear"
+    cam.stop_stream()
+    res = cam.apply(
+        CameraSettingsPatch(advanced={"hdr.output": "HDRChannel3", "lut.enabled": "off"})
+    )
+    assert res.ok and res.settings.advanced["lut.enabled"] == "off"
+
+
+def test_raw_hdr_mode_through_the_service_while_streaming(tmp_roots: Any) -> None:
+    limits = load_safety_limits()
+    system = FakeSystem()
+    svc = TwoDService(
+        limits,
+        LightService(SimulatedLight(), limits),
+        drivers={"arena": ArenaDriver(system)},
+        cameras=load_cameras_config(),
+    )
+    try:
+        svc.open(SERIAL, "test")
+        svc.grab(SERIAL)  # streaming: the service stops it for the locked settings
+        res = svc.set_mode(SERIAL, "raw_hdr")
+        assert res.ok, res.results
+        adv = res.settings.advanced
+        assert res.settings.pixel_format == "BayerRG24"
+        assert (adv["lut.enabled"], adv["color.transformation"], adv["hdr.enabled"]) == (
+            "off",
+            "off",
+            "off",
+        )
+        [cap] = svc.capture(SERIAL, 1, note="24-bit capture")
+        assert cap.preview_path is not None and cap.preview_path.is_file()
+        tiff = cap.preview_path.parent.parent / "captures" / "0001.tiff"
+        import tifffile
+
+        data = tifffile.imread(tiff)
+        assert data.dtype == np.uint32 and int(data.max()) > 1 << 16
+        assert 0.0 <= cap.scores.metric("mean_level") <= 1.0
+    finally:
+        svc.shutdown()
+
+
+def test_identity_nodes(cam: ArenaCamera) -> None:
+    nodes = cam.identity_nodes()
+    assert nodes["DeviceFirmwareVersion"] == "1.138.0.0" == cam.info.firmware
+    assert nodes["DeviceVersion"] == "K7A4W"

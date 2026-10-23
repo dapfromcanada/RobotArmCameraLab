@@ -29,6 +29,12 @@ from camera_lab.core.paths import safe_join, two_d_runs_root
 from camera_lab.core.presets import PresetRef
 from camera_lab.core.records import CaptureSidecar, RunSummary
 from camera_lab.two_d.errors import CameraBusyError, InvalidRequestError, TwoDError
+from camera_lab.two_d.fingerprint.session import (
+    FingerprintSession,
+    FpResult,
+    FpSetup,
+    StepPlan,
+)
 from camera_lab.two_d.gui.constants import (
     ACTOR,
     FPS_WINDOW_FRAMES,
@@ -157,6 +163,19 @@ class SetupOutcome:
     result: StepResult | None
     next_step: StepName | None
     focus_best: float | None = None
+
+
+@dataclass(frozen=True)
+class FingerprintOutcome:
+    """Result of a ``fingerprint_*`` job: the step result (if any) and what is due next."""
+
+    result: FpResult | None
+    next_step: FpSetup | None
+    #: The session's plan (labels, instructions, checklists) and whether a light recipe
+    #: dictates the lens and iris (then the Lens / iris box is read-only).
+    plan: dict[FpSetup, StepPlan] | None = None
+    lens: str = ""
+    has_recipe: bool = False
 
 
 @dataclass(frozen=True)
@@ -300,8 +319,13 @@ class CameraWorker(QObject):
             "setup_focus_reading": self._job_setup_focus_reading,
             "setup_finish_focus": self._job_setup_finish_focus,
             "setup_save": self._job_setup_save,
+            "fingerprint_create": self._job_fingerprint_create,
+            "fingerprint_step": self._job_fingerprint_step,
         }
         self._setup: SetupSession | None = None
+        self._fingerprint: FingerprintSession | None = None
+        #: Keyword arguments for new :class:`FingerprintSession` objects (tests: ``root``).
+        self.fingerprint_options: dict[str, Any] = {}
         #: Keyword arguments for new :class:`SetupSession` objects (tests: ``sleep``, ``root``).
         self.setup_options: dict[str, Any] = {}
         self._last_stream_emit = 0.0
@@ -383,6 +407,7 @@ class CameraWorker(QObject):
     def _job_open(self, camera_id: str) -> OpenOutcome:
         self._stop_live()
         self._setup = None
+        self._fingerprint = None
         if self._camera_id is not None and self._camera_id != camera_id:
             self.service.close(self._camera_id)
             self._camera_id = None
@@ -402,6 +427,7 @@ class CameraWorker(QObject):
     def _job_close(self) -> None:
         self._stop_live()
         self._setup = None
+        self._fingerprint = None
         if self._camera_id is not None:
             self.service.close(self._camera_id)
             self._camera_id = None
@@ -547,6 +573,44 @@ class CameraWorker(QObject):
         with self._streaming_grabs():
             result = session.save(confirm, preset_name)
         return SetupOutcome(result, session.next_step(), session.focus_best)
+
+    # -------------------------------------------------------- fingerprint
+    def _require_fingerprint(self) -> FingerprintSession:
+        if self._fingerprint is None:
+            raise InvalidRequestError("no fingerprint session: open the fingerprint window first")
+        return self._fingerprint
+
+    def _job_fingerprint_create(self) -> FingerprintOutcome:
+        self._fingerprint = FingerprintSession(
+            self.service, self._require_camera(), **self.fingerprint_options
+        )
+        return self._fp_outcome(None)
+
+    def _fp_outcome(self, result: FpResult | None) -> FingerprintOutcome:
+        session = self._require_fingerprint()
+        return FingerprintOutcome(
+            result,
+            session.next_step(),
+            dict(session.plan),
+            session.lens,
+            session.recipe is not None,
+        )
+
+    def _job_fingerprint_skip(self, step: FpSetup, reason: str = "") -> FingerprintOutcome:
+        session = self._require_fingerprint()
+        return self._fp_outcome(session.skip(step, reason))
+
+    def _job_fingerprint_step(
+        self, step: FpSetup, lens: str | None = None, confirmed: tuple[str, ...] = ()
+    ) -> FingerprintOutcome:
+        session = self._require_fingerprint()
+        if step not in session.plan:
+            raise InvalidRequestError(f"{step!r} is not a fingerprint step")
+        if lens is not None:
+            session.set_lens(lens)
+        with self._streaming_grabs():
+            result = session.run(step, confirmed)
+        return self._fp_outcome(result)
 
     # ---------------------------------------------------------------- live
     def _job_live_start(self) -> None:

@@ -260,10 +260,10 @@ def score_array(
 ) -> ScoreReport:
     """Score raw integer data (as delivered by the camera / stored in the TIFF)."""
     p = params or ScoringParams()
-    if not isinstance(data, np.ndarray) or data.dtype not in (np.uint8, np.uint16):
-        raise TypeError("data must be a uint8 or uint16 numpy array")
+    if not isinstance(data, np.ndarray) or data.dtype not in (np.uint8, np.uint16, np.uint32):
+        raise TypeError("data must be a uint8, uint16 or uint32 numpy array")
     bits = bit_depth if bit_depth is not None else PIXEL_FORMAT_BITS.get(pixel_format)
-    if bits is None or not 1 <= bits <= 16:
+    if bits is None or not 1 <= bits <= 24:
         raise ValueError(f"unknown bit depth for pixel format {pixel_format!r}")
     codes = crop_roi(demosaic(data, pixel_format), p.roi)
     if codes.shape[0] < 3 or codes.shape[1] < 3:

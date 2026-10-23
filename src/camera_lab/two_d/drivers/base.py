@@ -33,6 +33,19 @@ if TYPE_CHECKING:
     from camera_lab.two_d.backups import RestoreReport
 
 
+#: GenICam SFNC identity features read by :meth:`Camera2D.identity_nodes`.
+IDENTITY_NODES = (
+    "DeviceVendorName",
+    "DeviceModelName",
+    "DeviceSerialNumber",
+    "DeviceFirmwareVersion",
+    "DeviceVersion",
+    "DeviceManufacturerInfo",
+    "DeviceSFNCVersionMajor",
+    "DeviceSFNCVersionMinor",
+)
+
+
 class Camera2D(ABC):
     """An open 2D camera."""
 
@@ -100,6 +113,17 @@ class Camera2D(ABC):
         "notes"}``.
         """
         raise NotImplementedError(f"{type(self).__name__} cannot save user sets")
+
+    def user_set_info(self) -> dict[str, Any]:
+        """What the camera's user sets offer (read only): slots, boot-set feature,
+        stored features (None = unknown), whether a save needs the stream stopped."""
+        return {"slots": [], "boot_set_feature": False, "stored_features": None, "notes": []}
+
+    def identity_nodes(self) -> dict[str, str]:
+        """Standard GenICam identity features the camera reports (read only), by node name.
+        ``DeviceFirmwareVersion`` is the firmware; ``DeviceVersion`` is the hardware/device
+        version (on the JAI discovery reports the latter as "version")."""
+        return {}
 
     def __enter__(self) -> Camera2D:
         return self

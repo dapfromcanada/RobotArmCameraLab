@@ -36,6 +36,7 @@ FONT_SIZE_PT = 10
 SETUP_MESSAGE_FONT_PT = 14
 SETUP_MESSAGE_PADDING = 10
 SETUP_MESSAGE_BORDER = 2
+FP_INSTRUCTION_FONT_PT = 12
 FOCUS_READOUT_FONT_PT = 32
 FOCUS_BEST_FONT_PT = 16
 
@@ -169,6 +170,20 @@ QLabel#setupMessage[level="stop"] {{
     font-weight: bold;
 }}
 QLabel#setupMessage[level="pass"] {{ border-color: {ACCENT_GREEN}; }}
+QLabel#fpInstruction {{
+    background-color: {DARK_BG_ALT};
+    border: {SETUP_MESSAGE_BORDER}px solid {ACCENT_BLUE};
+    border-radius: {CONTROL_RADIUS}px;
+    padding: {SETUP_MESSAGE_PADDING}px;
+    font-size: {FP_INSTRUCTION_FONT_PT}pt;
+}}
+QFrame#fpResultRow {{
+    background-color: {DARK_BG_ALT};
+    border: 1px solid {BORDER_COLOR};
+}}
+QFrame#fpResultRow QLabel {{ background-color: transparent; border: none; }}
+QLabel#fpResultKey {{ color: {TEXT_SECONDARY}; }}
+QLabel#fpResultValue {{ color: {ACCENT_GREEN}; font-weight: bold; }}
 QLabel#focusReadout {{ font-size: {FOCUS_READOUT_FONT_PT}pt; color: {ACCENT_BLUE}; }}
 QLabel#focusBest {{ font-size: {FOCUS_BEST_FONT_PT}pt; color: {ACCENT_GREEN}; }}
 QLabel#livePreview {{ background-color: {BORDER_COLOR}; border: 1px solid {BORDER_COLOR}; }}

@@ -1,0 +1,345 @@
+"""Camera fingerprint procedure (Phase 11): gated, measured once per camera in the lab.
+
+Steps (each passes or stops and says what the human must do):
+
+1. ``identity``   — backup; the camera's design mode (the profile's default mode) and
+                    its raw format (the mode's own if ≥ 12 bit, else the best ≤ 12-bit
+                    raw format of the sensor's family); black level raised a little
+                    so the darks are not clipped at 0; gain 0 if gain is a knob
+2. ``timing``     — fps per pixel format; stale frames after an exposure change
+                    (camera_lab's settle logic should leave 0)
+3. ``dark``       — lens cap on: black level, read noise, DSNU (per gain where gain
+                    is a knob), dark current, hot pixels; a master dark is saved.
+                    HDR cameras: also the black and read noise of each channel
+4. ``flat``       — opal diffuser close to the lens: exposure sweep → linearity,
+                    saturation, SNR across the range, photon transfer (system gain,
+                    read noise, full well); vignetting and PRNU; a master flat.
+                    HDR cameras: the combined output gets the response only (EMVA
+                    1288 photon transfer applies per channel, not to merged data)
+5. ``channels_a`` … ``channels_d`` — HDR cameras: photon transfer of each channel on
+                    its own 12-bit output, at the light the profile's recipe dictates
+                    (dimmer + f-number per stage). The light is measured first and the
+                    stage stops if it does not match. Without a recipe (a new model):
+                    one discovery stage that says how much less/more light each channel
+                    needs. Unused stages are skipped
+6. ``light_back`` — the bench back at the reference light (iris fully open), verified
+                    against the light measured in the flat step
+7. ``noise_gain`` — temporal SNR per gain at constant output; gain-mode switches.
+                    Skipped where gain is not a knob of the design mode
+8. ``user_sets``  — what the camera's user sets offer (power-up is a human test)
+9. ``report``     — ``fingerprint.yaml`` + ``report.md`` in a dated folder under
+                    ``WS/config/camera_fingerprints/<serial>/``; the camera is
+                    restored from the identity backup
+
+Strict procedure (Derek 2026-10-22): every step has a checklist of what the human must
+have done; :meth:`FingerprintSession.run` refuses a step until each item is confirmed.
+
+Bench vs machine (spec): the camera-only results carry over to the machine;
+vignetting / flat field depend on the lens, aperture and focus and are re-measured
+there.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import TYPE_CHECKING, Literal
+
+from camera_lab.two_d.errors import InvalidRequestError
+from camera_lab.two_d.fingerprint.bench import load_bench
+
+if TYPE_CHECKING:
+    from camera_lab.two_d.service import Actor, TwoDService
+from camera_lab.two_d.fingerprint.colour import ColourMeasurements
+from camera_lab.two_d.fingerprint.common import (
+    BLACK_RAISE,
+    CHANNEL_PREFIX,
+    CHANNEL_REPEAT_KEYS,
+    COLOUR_REPEAT_KEYS,
+    DARK_EXPOSURES_US,
+    DARK_FRAMES,
+    DARK_GAIN_STEP_DB,
+    DARK_REPEAT_KEYS,
+    DEFAULT_MIN_EXPOSURE_US,
+    F_STOPS,
+    FLAT_MASTER_FRAMES,
+    FLAT_MASTER_LEVEL,
+    FLAT_REPEAT_KEYS,
+    FLAT_SWEEP,
+    FLAT_TARGET,
+    FP_SETUPS,
+    FP_STEPS,
+    GAIN_SWITCH_GAIN,
+    LENS_MAX_CHARS,
+    LIGHT_BACK_TOLERANCE,
+    LIGHT_SETUPS,
+    LIGHT_TOLERANCE,
+    MAX_EXPOSURE_US,
+    MEASURE_LABELS,
+    NOISE_GAIN_STEP_DB,
+    NOISE_PAIRS,
+    NOISE_TARGET,
+    PROBE_FRACTION,
+    REPEAT_TOLERANCE_PCT,
+    REPEATS,
+    SETTLE_FRAMES,
+    STAGE_STEPS,
+    SWEEP_LOW_FACTOR,
+    FpResult,
+    FpSetup,
+    FpStep,
+    StepPlan,
+    fingerprints_root,
+    format_family,
+    iris_hint,
+    repeat_note,
+    repeat_summary,
+)
+from camera_lab.two_d.fingerprint.core import CoreMeasurements
+from camera_lab.two_d.fingerprint.hdr import HdrMeasurements
+from camera_lab.two_d.fingerprint.plan import PlanMixin
+from camera_lab.two_d.fingerprint.report import ReportMixin
+
+__all__ = [
+    "BLACK_RAISE",
+    "CHANNEL_PREFIX",
+    "CHANNEL_REPEAT_KEYS",
+    "DARK_EXPOSURES_US",
+    "DARK_FRAMES",
+    "DARK_GAIN_STEP_DB",
+    "DARK_REPEAT_KEYS",
+    "FLAT_MASTER_FRAMES",
+    "FLAT_MASTER_LEVEL",
+    "FLAT_REPEAT_KEYS",
+    "FLAT_SWEEP",
+    "FLAT_TARGET",
+    "FP_SETUPS",
+    "FP_STEPS",
+    "F_STOPS",
+    "GAIN_SWITCH_GAIN",
+    "LENS_MAX_CHARS",
+    "LIGHT_BACK_TOLERANCE",
+    "LIGHT_SETUPS",
+    "LIGHT_TOLERANCE",
+    "MAX_EXPOSURE_US",
+    "MEASURE_LABELS",
+    "NOISE_GAIN_STEP_DB",
+    "NOISE_PAIRS",
+    "NOISE_TARGET",
+    "PROBE_FRACTION",
+    "REPEATS",
+    "REPEAT_TOLERANCE_PCT",
+    "SETTLE_FRAMES",
+    "STAGE_STEPS",
+    "SWEEP_LOW_FACTOR",
+    "FingerprintSession",
+    "FpResult",
+    "FpSetup",
+    "FpStep",
+    "StepPlan",
+    "fingerprints_root",
+    "format_family",
+    "iris_hint",
+    "repeat_note",
+    "repeat_summary",
+]
+
+
+class FingerprintSession(
+    PlanMixin, CoreMeasurements, ColourMeasurements, HdrMeasurements, ReportMixin
+):
+    """One fingerprint of one open camera."""
+
+    def __init__(
+        self,
+        service: TwoDService,
+        camera_id: str,
+        *,
+        actor: Actor = "human",
+        root: Path | None = None,
+        bench_path: Path | None = None,
+    ) -> None:
+        self.service = service
+        self.camera_id = service.resolve(camera_id)
+        self.actor = actor
+        self.root = root
+        self.results = {}  # per measurement
+        self.setup_results = {}  # per setup (the rows)
+        self._light_changes = False
+        self.backup_id = None
+        self.fmt = ""
+        self.full_scale = 0.0
+        self.black_dn = 0.0
+        self._view_exposure = 0.0
+        self._view_gain = 0.0
+        self._ref_exposure = 0.0  # exposure of the flat sweep's reference point
+        self.mode = ""
+        self.gain_knob = True  # gain is a knob of the design mode
+        self.hdr_channels = ()  # hdr.output options of single channels
+        self.channel_fmt = ""
+        self._channel_black = {}
+        self._channels = {}  # measured channels, kept across runs
+        self.lens = ""  # lens / iris (from the recipe, or as the human states it)
+        self._last_fraction = 0.0  # signal / span at the end of the last exposure search
+        self._ref_rate = 0.0  # own-output signal per µs at the reference light (flat step)
+        self._arrays = {}
+        self.created = datetime.now(UTC)
+        prof = service.get_profile(self.camera_id)
+        self.hdr_capable = prof.characteristics.hdr_capable
+        self.colour = prof.characteristics.colour
+        self.recipe = prof.fingerprint
+        self.bench = load_bench(bench_path)
+        self.min_exposure_us = (
+            self.bench.min_exposure_us if self.bench is not None else DEFAULT_MIN_EXPOSURE_US
+        )
+        self._row_noise_dn2 = {}
+        self.lens_label = ""
+        self._open_f = 0.0
+        if self.recipe is not None:
+            self._check_recipe()
+            self.lens = self._lens_at(self.recipe.reference)
+        self.plan = self._build_plan()
+
+    def _check_recipe(self) -> None:
+        r = self.recipe
+        if r is None:  # pragma: no cover - only called with a recipe
+            return
+        if self.bench is None:
+            raise InvalidRequestError(
+                "the camera profile has a fingerprint recipe but there is no "
+                "config/fingerprint_bench.yaml"
+            )
+        lens = self.bench.lenses.get(r.lens)
+        if lens is None:
+            raise InvalidRequestError(
+                f"recipe lens {r.lens!r} is not in fingerprint_bench.yaml "
+                f"(known: {', '.join(self.bench.lenses) or 'none'})"
+            )
+        self.lens_label, self._open_f = lens.label, lens.open_f
+        for light in (r.reference, *r.channel_stages):
+            if light.f_number not in lens.f_stops:
+                raise InvalidRequestError(
+                    f"recipe f/{light.f_number:g} is not a marked stop of {lens.label} "
+                    f"({', '.join(f'f/{f:g}' for f in lens.f_stops)})"
+                )
+            self.bench.light_ratio(light.dimmer, light.f_number, r.reference.dimmer, 1.0)
+
+    def _measure(self, m: FpStep) -> FpResult:
+        """One measurement; darks and the flat run REPEATS times (HDR channels repeat inside)."""
+        if m == "dark":
+            res = self._repeat(self.step_dark, DARK_REPEAT_KEYS)
+            if res.ok and "repeats" in res.data:
+                self.black_dn = res.data["repeats"]["black_dn"]["median"]
+            return res
+        if m == "flat":
+            res = self._repeat(self.step_flat, FLAT_REPEAT_KEYS)
+            rate = res.data.get("repeats", {}).get("reference_light_dn_per_us")
+            if res.ok and rate:
+                self._ref_rate = rate["median"]
+            return res
+        if m == "colour":
+            return self._repeat(self.step_colour, COLOUR_REPEAT_KEYS)
+        if m in STAGE_STEPS:
+            return self.step_stage(STAGE_STEPS.index(m))
+        methods: dict[FpStep, Callable[[], FpResult]] = {
+            "identity": self.step_identity,
+            "timing": self.step_timing,
+            "light_back": self.step_light_back,
+            "noise_gain": self.step_noise_gain,
+            "user_sets": self.step_user_sets,
+            "report": self.step_report,
+        }
+        return methods[m]()
+
+    def _repeat(self, fn: Callable[[], FpResult], keys: tuple[str, ...]) -> FpResult:
+        runs: list[FpResult] = []
+        for _ in range(REPEATS):
+            res = fn()
+            if not res.ok:
+                return res
+            runs.append(res)
+        summary = repeat_summary([r.data for r in runs], keys)
+        last = runs[-1]
+        return self._record(
+            FpResult(
+                step=last.step,
+                status=last.status,
+                message=last.message + repeat_note(summary),
+                data={**last.data, "repeats": summary},
+            )
+        )
+
+    def run(self, setup: FpSetup, confirmed: Iterable[str] = ()) -> FpResult:
+        """Run every measurement of ``setup`` once its checklist is confirmed. On a Retry the
+        measurements that already passed in this setup are kept."""
+        plan = self.plan[setup]
+        done = set(confirmed)
+        missing = [c for c in plan.checks if c not in done]
+        if missing:
+            raise InvalidRequestError(
+                f"confirm the checklist of {plan.label} first: {'; '.join(missing)}"
+            )
+        if not plan.active:
+            return self._record_setup(
+                FpResult(step=setup, status="skipped", message=plan.instruction)
+            )
+        parts: list[FpResult] = []
+        for m in plan.measures:
+            prev = self.results.get(m)
+            res = prev if prev is not None and prev.ok else self._measure(m)
+            parts.append(res)
+            if not res.ok:
+                break
+        data = {p.step: p.data for p in parts}
+        failed = [p for p in parts if not p.ok]
+        if failed:
+            f = failed[0]
+            return self._record_setup(
+                FpResult(
+                    step=setup,
+                    status="fail",
+                    message=f"{MEASURE_LABELS[f.step]}: {f.message}",  # type: ignore[index]
+                    data=data,
+                )
+            )
+        status: Literal["pass", "skipped"] = (
+            "skipped" if all(p.status == "skipped" for p in parts) else "pass"
+        )
+        message = "; ".join(
+            f"{MEASURE_LABELS[p.step]}: {p.message}"  # type: ignore[index]
+            for p in parts
+            if p.status == "pass" or status == "skipped"
+        )
+        return self._record_setup(FpResult(step=setup, status=status, message=message, data=data))
+
+    def skip(self, setup: FpSetup, reason: str = "") -> FpResult:
+        """The operator skips a light setup (HDR channels); recorded in the report."""
+        plan = self.plan[setup]
+        if not plan.can_skip:
+            raise InvalidRequestError(f"{plan.label} cannot be skipped")
+        why = " ".join(reason.split())[:LENS_MAX_CHARS] or "no reason given"
+        msg = f"skipped by the operator ({why})"
+        for m in plan.measures:
+            if m not in self.results or not self.results[m].ok:
+                self._record(FpResult(step=m, status="skipped", message=msg))
+        return self._record_setup(
+            FpResult(step=setup, status="skipped", message=msg, data={"operator_skip": why})
+        )
+
+    def set_lens(self, text: str) -> None:
+        """Lens and iris as the human states them (no recipe only: a recipe dictates them)."""
+        if self.recipe is None:
+            self.lens = " ".join(text.split())[:LENS_MAX_CHARS]
+
+    def next_step(self) -> FpSetup | None:
+        """The setup that is due (inactive setups are skipped on the way)."""
+        for setup in FP_SETUPS:
+            r = self.setup_results.get(setup)
+            if r is None and not self.plan[setup].active:
+                r = self._record_setup(
+                    FpResult(step=setup, status="skipped", message=self.plan[setup].instruction)
+                )
+            if r is None or r.status == "fail":
+                return setup
+        return None

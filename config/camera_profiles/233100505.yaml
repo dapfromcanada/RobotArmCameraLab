@@ -13,7 +13,7 @@ characteristics:
     - "In HDR mode (HDRTuningEnable on) ExposureTime and Gain are read-only; tune the HDR channels instead."
     - "The manual only lists the HDR node names (HDR Control L2165); behaviour is being characterised at the bench."
 
-default_mode: hdr
+default_mode: raw_hdr
 
 # Preferred ranges (guidance for the tuner / setup / agent; never a hard limit).
 # HDR (Derek 2026-10-21): channel exposures only up to one frame at free-run
@@ -25,27 +25,69 @@ working_range:
   gain_db: {min: 0, max: 18}
   "hdr.ch*.exposure_us": {max: 47900}
 
+# Fingerprint bench recipe (Phase 11 strict procedure, Derek 2026-10-22/23). The human sets
+# exactly this; camera_lab measures the light before each stage and stops if it differs.
+# Floods at full; only the iris changes. From the 2026-10-23 iris sweep (80 % point of
+# each channel, needs >= 20 ms = 10x the 2 ms bench minimum): ch3 68 ms at f/1.4, ch2 50 ms
+# at f/8, ch1 29 ms at f/16. ch0 (~22x ch1) is saturated even at f/16: it needs ~15x less
+# light (ND filter or more diffuser) and is not in the recipe yet.
+fingerprint:
+  lens: kowa_8mm
+  reference: {dimmer: 10, f_number: 1.4}    # darks, timing, flat, colour, noise: iris open
+  channel_stages:
+    - {dimmer: 10, f_number: 1.4, channels: [HDRChannel3]}
+    - {dimmer: 10, f_number: 8, channels: [HDRChannel2]}
+    - {dimmer: 10, f_number: 16, channels: [HDRChannel1]}
+  notes:
+    - "Floods at full throughout; only the iris changes (f/1.4, f/8, f/16, back to f/1.4)."
+    - "HDRChannel0 not measured: needs ~15x less light than f/16 (ND filter / more diffuser)."
+
 modes:
+  raw_hdr:
+    strategy: linear
+    description: >
+      Lucid's raw path (KB "Tonemapping images from LUCID's TRI054S-CC"): BayerRG24 linear
+      24-bit HDR (> 120 dB), the 4 channels combined on the sensor; LUT and colour
+      transformation off. HDR tuning off, so ExposureTime sets all four channel exposures
+      and the factory channel gains stay. Verified linear 2026-10-22 (x2.00 per doubling).
+      Tone mapping is done on the PC. The design mode of this camera: fingerprint and detect here.
+    settings:
+      pixel_format: BayerRG24
+      advanced:
+        hdr.enabled: "off"
+        hdr.output: HDR
+        lut.enabled: "off"
+        color.transformation: "off"
+    knobs: [exposure_us]
+    scoring:
+      target_mean: 0.10       # linear 24-bit HDR: the scene sits low, highlights keep headroom
+      clip_max_pct: 0.2
   hdr:
     strategy: hdr
     description: >
-      HDR output (merged channels). Tunes the channels' shared exposure to avoid clipping while
-      keeping shadow detail; channel gains stay as set. v1 — to be refined with bench data.
+      Display path: 12-bit output through the factory LUT (gamma 0.5, GammaPointFive) with
+      HDR tuning on; tunes the channels' shared exposure; channel gains stay as set.
+      The LUT makes the output non-linear (x1.41 per exposure doubling).
     settings:
       advanced:
         hdr.enabled: "on"
         hdr.output: HDR
+        lut.enabled: "on"
+        color.transformation: "on"
     knobs: [hdr.ch0.exposure_us, hdr.ch1.exposure_us, hdr.ch2.exposure_us, hdr.ch3.exposure_us]
     scoring:
-      target_mean: 0.35       # HDR output is tone-compressed; a lower mean keeps highlights
+      target_mean: 0.35       # LUT-compressed output; a lower mean keeps highlights
       clip_max_pct: 0.2
       black_max_pct: 2.0
   linear:
     strategy: linear
     description: >
-      HDR tuning off: standard ExposureTime / Gain control (rolling shutter, static scenes).
-      Unverified: whether the output is still HDR-merged with HDR tuning off.
+      HDR tuning off, factory LUT on: ExposureTime / Gain control of the LUT-compressed
+      output (rolling shutter, static scenes). Not linear despite the name (gamma-0.5 LUT);
+      use raw_hdr for linear data.
     settings:
       advanced:
         hdr.enabled: "off"
+        lut.enabled: "on"
+        color.transformation: "on"
     knobs: [exposure_us, gain_db, white_balance]

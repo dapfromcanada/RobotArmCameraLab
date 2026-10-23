@@ -4,7 +4,7 @@ Layout under ``WS/data/raw_recordings/camera_lab/two_d/<run_id>/``::
 
     run.json              RunRecord (rewritten atomically on finish)
     steps.jsonl           one StepEntry per line
-    captures/NNNN.tiff    raw frame as delivered (uint8/uint16, uncompressed),
+    captures/NNNN.tiff    raw frame as delivered (uint8/uint16/uint32, uncompressed),
                           sidecar JSON also in the TIFF ImageDescription
     captures/NNNN.json    CaptureSidecar
     previews/NNNN.jpg     8-bit preview, long edge <= 1024 px, JPEG quality 85
@@ -139,11 +139,11 @@ class CaptureSidecar(_Model):
     settings: dict[str, Any]
     lights: dict[str, float]
     pixel_format: str = Field(min_length=1, max_length=64)
-    bit_depth: int = Field(ge=1, le=16)
+    bit_depth: int = Field(ge=1, le=24)
     width: int = Field(gt=0)
     height: int = Field(gt=0)
     channels: Literal[1, 3]
-    dtype: Literal["uint8", "uint16"]
+    dtype: Literal["uint8", "uint16", "uint32"]
     frame_id: int | None = None
     scores: dict[str, Any] = Field(default_factory=dict)
     preview: str | None = None
@@ -230,8 +230,8 @@ def parse_capture_id(capture_id: str) -> tuple[str, int]:
 def _check_image(image: Any) -> npt.NDArray[Any]:
     if not isinstance(image, np.ndarray):
         raise TypeError("image must be a numpy array")
-    if image.dtype not in (np.uint8, np.uint16):
-        raise TypeError(f"image dtype must be uint8 or uint16, got {image.dtype}")
+    if image.dtype not in (np.uint8, np.uint16, np.uint32):
+        raise TypeError(f"image dtype must be uint8, uint16 or uint32, got {image.dtype}")
     if image.ndim == 2 or (image.ndim == 3 and image.shape[2] == 3):
         if image.size == 0:
             raise ValueError("image is empty")

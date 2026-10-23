@@ -1,0 +1,64 @@
+
+## f/1.4 (05:31:22)
+combined: 266.8 DN/µs (at 10.0 ms)   → 80 % at 50.3 ms
+HDRChannel0: saturated at 2 ms  [too bright]
+HDRChannel1: saturated at 2 ms  [too bright]
+HDRChannel2: 1.6660 DN/µs (at 2.0 ms)  → 80 % at 1.86 ms  [too bright for a full sweep from 2 ms]
+HDRChannel3: 0.0458 DN/µs (at 16.0 ms)  → 80 % at 67.92 ms  [OK for a full sweep from 2 ms]
+restored: True
+
+## f/2 (05:32:36)
+combined: 196.5 DN/µs (at 10.0 ms)   → 80 % at 68.3 ms
+HDRChannel0: saturated at 2 ms  [too bright]
+HDRChannel1: saturated at 2 ms  [too bright]
+HDRChannel2: 1.2319 DN/µs (at 2.0 ms)  → 80 % at 2.51 ms  [too bright for a full sweep from 2 ms]
+HDRChannel3: 0.0331 DN/µs (at 16.0 ms)  → 80 % at 94.01 ms  [OK for a full sweep from 2 ms]
+restored: True
+
+## f/2.8 (05:34:06)
+combined: 94.0 DN/µs (at 10.0 ms)   → 80 % at 142.8 ms
+HDRChannel0: saturated at 2 ms  [too bright]
+HDRChannel1: saturated at 2 ms  [too bright]
+HDRChannel2: 0.6056 DN/µs (at 2.0 ms)  → 80 % at 5.11 ms  [too bright for a full sweep from 2 ms]
+HDRChannel3: 0.0160 DN/µs (at 16.0 ms)  → 80 % at 194.50 ms  [OK for a full sweep from 2 ms]
+restored: True
+
+## f/4 (05:39:11)
+combined: 49.9 DN/µs (at 80.0 ms)   → 80 % at 269.1 ms
+HDRChannel0: saturated at 2 ms  [too bright]
+HDRChannel1: saturated at 2 ms  [too bright]
+HDRChannel2: 0.2922 DN/µs (at 2.0 ms)  → 80 % at 10.60 ms  [too bright for a full sweep from 2 ms]
+HDRChannel3: 0.0085 DN/µs (at 128.0 ms)  → 80 % at 365.63 ms  [OK for a full sweep from 2 ms]
+restored: True
+
+## f/5.6 (dot between 4 and 8) (05:41:05)
+combined: 24.7 DN/µs (at 80.0 ms)   → 80 % at 544.5 ms
+HDRChannel0: saturated at 2 ms  [too bright]
+HDRChannel1: 1.0028 DN/µs (at 2.0 ms)  → 80 % at 3.12 ms  [too bright for a full sweep from 2 ms]
+HDRChannel2: 0.1281 DN/µs (at 2.0 ms)  → 80 % at 24.19 ms  [OK for a full sweep from 2 ms]
+HDRChannel3: 0.0041 DN/µs (at 128.0 ms)  → 80 % at 760.11 ms  [OK for a full sweep from 2 ms]
+restored: True
+
+## f/16 (relabelled: ring was at 16) (05:43:21)
+combined: 2.5 DN/µs (at 640.0 ms)   → 80 % at 5279.4 ms
+HDRChannel0: saturated at 2 ms  [too bright]
+HDRChannel1: 0.1087 DN/µs (at 2.0 ms)  → 80 % at 28.77 ms  [OK for a full sweep from 2 ms]
+HDRChannel2: 0.0148 DN/µs (at 16.0 ms)  → 80 % at 209.36 ms  [OK for a full sweep from 2 ms]
+HDRChannel3: 0.0004 DN/µs (at 1024.0 ms)  → 80 % at 7804.96 ms  [too dark for a full sweep from 2 ms]
+restored: True
+
+## f/8 (05:47:01)
+combined: 10.3 DN/µs (at 640.0 ms)   → 80 % at 1299.4 ms
+HDRChannel0: saturated at 2 ms  [too bright]
+HDRChannel1: 0.4109 DN/µs (at 2.0 ms)  → 80 % at 7.61 ms  [too bright for a full sweep from 2 ms]
+HDRChannel2: 0.0616 DN/µs (at 16.0 ms)  → 80 % at 50.31 ms  [OK for a full sweep from 2 ms]
+HDRChannel3: 0.0015 DN/µs (at 128.0 ms)  → 80 % at 2042.84 ms  [too dark for a full sweep from 2 ms]
+restored: True
+
+## f/11 (dot between 8 and 16) (05:50:22)
+combined: 7.5 DN/µs (at 640.0 ms)   → 80 % at 1799.7 ms
+HDRChannel0: saturated at 2 ms  [too bright]
+HDRChannel1: 0.2941 DN/µs (at 2.0 ms)  → 80 % at 10.63 ms  [too bright for a full sweep from 2 ms]
+HDRChannel2: 0.0436 DN/µs (at 16.0 ms)  → 80 % at 71.11 ms  [OK for a full sweep from 2 ms]
+HDRChannel3: 0.0012 DN/µs (at 1024.0 ms)  → 80 % at 2540.72 ms  [too dark for a full sweep from 2 ms]
+restored: True

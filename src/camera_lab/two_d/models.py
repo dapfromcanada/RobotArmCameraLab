@@ -69,6 +69,10 @@ PIXEL_FORMAT_BITS: dict[str, int] = {
     "RGB10p32": 10,
     "RGB10V1Packed": 10,
     "RGB12V1Packed": 12,
+    # 24-bit linear HDR (Lucid TRI054S / IMX490, LUT off): 3 bytes per pixel on the
+    # wire, unpacked to uint32.
+    "Mono24": 24,
+    "BayerRG24": 24,
 }
 
 
@@ -235,7 +239,7 @@ class Frame(BaseModel):
 
     data: npt.NDArray[Any]
     pixel_format: str
-    bit_depth: int = Field(ge=1, le=16)
+    bit_depth: int = Field(ge=1, le=24)
     timestamp_utc: datetime
     frame_id: int = Field(ge=0)
     settings: CameraSettings
@@ -245,8 +249,8 @@ class Frame(BaseModel):
     def _check_data(cls, v: Any) -> npt.NDArray[Any]:
         if not isinstance(v, np.ndarray):
             raise TypeError("data must be a numpy array")
-        if v.dtype not in (np.uint8, np.uint16):
-            raise ValueError(f"data dtype must be uint8 or uint16, got {v.dtype}")
+        if v.dtype not in (np.uint8, np.uint16, np.uint32):
+            raise ValueError(f"data dtype must be uint8, uint16 or uint32, got {v.dtype}")
         if not (v.ndim == 2 or (v.ndim == 3 and v.shape[2] == 3)) or v.size == 0:
             raise ValueError(f"data shape must be HxW or HxWx3, got {v.shape}")
         return v

@@ -196,6 +196,20 @@ class EnumParam(Param):
         return OK, _Entry(self.cam.entries[self.name][i])
 
 
+#: Read-only identity strings (live AP-3200T-PGE 2026-10-22: discovery "version" is
+#: DeviceVersion, the firmware is DeviceFirmwareVersion).
+IDENTITY = {
+    "DeviceModelName": "AP-3200T-PGE",
+    "DeviceFirmwareVersion": "0.0.3.4",
+    "DeviceVersion": "0.1.0.7",
+}
+
+
+class StrParam(Param):
+    def GetValue(self) -> tuple[R, str]:  # noqa: N802
+        return OK, IDENTITY[self.name]
+
+
 class CmdParam(Param):
     def Execute(self) -> R:  # noqa: N802
         if self.name == "UserSetSave" and self.cam.streaming:  # live: refused while acquiring
@@ -447,6 +461,8 @@ class FakeParams:
             return IntParam(cam, name)
         if name in ("ExposureTime", "AcquisitionFrameRate", "Gain", "Gamma"):
             return NumParam(cam, name)
+        if name in IDENTITY:
+            return StrParam(cam, name)
         return None
 
 

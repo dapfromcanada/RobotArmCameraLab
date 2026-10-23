@@ -89,6 +89,37 @@ class WorkingRange(_Frozen):
         return self
 
 
+class FpLight(_Frozen):
+    """A bench light state for the fingerprint: the dimmer setting and the iris f-number."""
+
+    dimmer: int = Field(ge=0, le=100)
+    f_number: float = Field(gt=0, le=64)
+
+
+class FpChannelStage(FpLight):
+    """HDR channels measured at one light state (one fingerprint step row)."""
+
+    channels: tuple[str, ...] = Field(min_length=1, max_length=8)
+
+    @field_validator("channels")
+    @classmethod
+    def _channel_names(cls, v: tuple[str, ...]) -> tuple[str, ...]:
+        bad = [c for c in v if re.fullmatch(r"[A-Za-z0-9_]{1,40}", c) is None]
+        if bad:
+            raise ValueError(f"invalid channel names: {', '.join(bad)}")
+        return v
+
+
+class FingerprintRecipe(_Frozen):
+    """How the human sets the bench for this camera model's fingerprint (Phase 11 strict
+    procedure, Derek 2026-10-22). Lens names refer to ``config/fingerprint_bench.yaml``."""
+
+    lens: str = Field(pattern=r"^[a-z0-9_]{1,40}$")
+    reference: FpLight
+    channel_stages: tuple[FpChannelStage, ...] = Field(default=(), max_length=4)
+    notes: tuple[str, ...] = ()
+
+
 #: Used when a profile gives no working range: the old safety caps, now guidance
 #: (limits policy, Derek 2026-10-21). Names ending in ``_us`` / ``_db`` (e.g.
 #: ``hdr.ch0.exposure_us``) fall back to ``exposure_us`` / ``gain_db``.
@@ -113,6 +144,8 @@ class CameraProfile(_Frozen):
     working_range: dict[str, WorkingRange] = Field(
         default_factory=lambda: dict(DEFAULT_WORKING_RANGE)
     )
+    #: Bench recipe for the fingerprint (None: discovery mode).
+    fingerprint: FingerprintRecipe | None = None
 
     @field_validator("working_range")
     @classmethod

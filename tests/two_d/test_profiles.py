@@ -44,7 +44,7 @@ def _by(res: Any) -> dict[str, Any]:
 # --------------------------------------------------------------- profiles
 def test_shipped_profiles_load() -> None:
     triton = load_profile("233100505")
-    assert triton.default_mode == "hdr" and set(triton.modes) == {"hdr", "linear"}
+    assert triton.default_mode == "raw_hdr" and set(triton.modes) == {"raw_hdr", "hdr", "linear"}
     assert triton.characteristics.shutter == "rolling" and triton.characteristics.hdr_capable
     jai = load_profile("U330439")
     assert jai.characteristics.colour == "prism" and jai.characteristics.shutter == "global"
@@ -293,7 +293,7 @@ def _cli(*args: str) -> Any:
 
 def test_cli_profile_show_and_mode_set() -> None:
     res = _cli("two-d", "profile", "show", "triton")
-    assert res.exit_code == 0 and "rolling" in res.stdout and "*hdr" in res.stdout
+    assert res.exit_code == 0 and "rolling" in res.stdout and "*raw_hdr" in res.stdout
     data = json.loads(_cli("two-d", "profile", "show", "apex", "--json").stdout)["result"]
     assert data["default_mode"] == "prism"
     res = _cli("--sim", "two-d", "mode", "set", "SIM-0001", "hdr", "--json")
@@ -379,7 +379,7 @@ def test_arena_hdr_strategy_on_fake(tmp_roots: Path) -> None:
     svc = _service({"arena": ArenaDriver(FakeSystem())})
     try:
         svc.open("233100505", "test")
-        r = svc.tune("233100505", max_steps=6)
+        r = svc.tune("233100505", "hdr", max_steps=6)
         assert (r.mode, r.strategy) == ("hdr", "hdr")
         adv = svc.get_settings("233100505").settings.advanced
         assert len({adv[f"hdr.ch{i}.exposure_us"] for i in range(4)}) == 1  # moved together

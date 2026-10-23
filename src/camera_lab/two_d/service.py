@@ -530,6 +530,11 @@ class TwoDService:
         )
         return {**out, "backup_before": backup.backup_id}
 
+    def user_set_info(self, camera_id: str) -> dict[str, Any]:
+        """What the camera's user sets offer (read only)."""
+        _, oc = self._require_open(camera_id)
+        return oc.camera.user_set_info()
+
     def close(self, camera_id: str) -> None:
         """Stop streaming, close the camera and release its lock (idempotent)."""
         serial = self.cameras.resolve(camera_id)

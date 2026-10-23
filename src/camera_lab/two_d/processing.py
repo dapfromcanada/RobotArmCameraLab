@@ -39,6 +39,18 @@ _BAYER_TO_CV = {
     "BayerGB": cv2.COLOR_BayerGR2RGB,
 }
 REC709 = (0.2126, 0.7152, 0.0722)
+#: Previews of formats deeper than this are linear HDR and get a display tone curve.
+PREVIEW_LINEAR_MAX_BITS = 16
+HDR_DISPLAY_PERCENTILE = 99.5
+HDR_DISPLAY_GAMMA = 1 / 2.2
+
+
+def hdr_display(img: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    """Display tone curve for linear HDR (preview only, never the stored data):
+    scale so the 99.5th percentile is white, then a 1/2.2 display gamma."""
+    top = float(np.percentile(img, HDR_DISPLAY_PERCENTILE))
+    out: npt.NDArray[np.float64] = np.clip(img / max(top, 1e-12), 0.0, 1.0) ** HDR_DISPLAY_GAMMA
+    return out
 
 
 def demosaic(data: npt.NDArray[Any], pixel_format: str) -> npt.NDArray[Any]:
@@ -48,7 +60,35 @@ def demosaic(data: npt.NDArray[Any], pixel_format: str) -> npt.NDArray[Any]:
     code = _BAYER_TO_CV.get(pixel_format[:7])
     if code is None:
         raise ValueError(f"unknown Bayer pattern {pixel_format!r}")
+    if data.dtype == np.uint32:  # 24-bit HDR: OpenCV demosaics only 8/16-bit
+        return _bilinear_demosaic(data, pixel_format[:7])
     out: npt.NDArray[Any] = np.asarray(cv2.cvtColor(np.ascontiguousarray(data), code))
+    return out
+
+
+#: (row, col) of R and B in the 2 × 2 Bayer cell; G fills the other two sites.
+_BAYER_SITES = {
+    "BayerRG": ((0, 0), (1, 1)),
+    "BayerBG": ((1, 1), (0, 0)),
+    "BayerGR": ((0, 1), (1, 0)),
+    "BayerGB": ((1, 0), (0, 1)),
+}
+_K_G = np.array([[0, 1, 0], [1, 4, 1], [0, 1, 0]], np.float64) / 4.0
+_K_RB = np.array([[1, 2, 1], [2, 4, 2], [1, 2, 1]], np.float64) / 4.0
+
+
+def _bilinear_demosaic(data: npt.NDArray[Any], pattern: str) -> npt.NDArray[np.uint32]:
+    """Bilinear demosaic in float64 (exact for 24-bit codes) → uint32 RGB."""
+    raw = np.asarray(data, np.float64)
+    (ry, rx), (by, bx) = _BAYER_SITES[pattern]
+    r = np.zeros_like(raw)
+    b = np.zeros_like(raw)
+    r[ry::2, rx::2] = raw[ry::2, rx::2]
+    b[by::2, bx::2] = raw[by::2, bx::2]
+    g = raw - r - b
+    planes = [cv2.filter2D(r, -1, _K_RB), cv2.filter2D(g, -1, _K_G), cv2.filter2D(b, -1, _K_RB)]
+    rgb = np.stack(planes, axis=2)
+    out: npt.NDArray[np.uint32] = np.rint(np.clip(rgb, 0, None)).astype(np.uint32)
     return out
 
 
@@ -77,6 +117,8 @@ def make_preview(frame: Frame, long_edge: int = 1024) -> npt.NDArray[np.uint8]:
     if long_edge < 1:
         raise ValueError("long_edge must be >= 1")
     img = to_float01(to_display_array(frame), frame.bit_depth)
+    if frame.bit_depth > PREVIEW_LINEAR_MAX_BITS:  # linear HDR: tone-map for the eye
+        img = hdr_display(img)
     rgb = np.repeat(img[..., None], 3, axis=2) if img.ndim == 2 else img
     h, w = rgb.shape[:2]
     scale = long_edge / max(h, w)

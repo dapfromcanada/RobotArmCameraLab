@@ -595,3 +595,85 @@ def setup(
     show(res)
     for note in res.data.get("notes", []):
         typer.echo(f"note: {note}")
+
+
+# -------------------------------------------------------------- site light
+@app.command("assess-light")
+@handle_errors
+def assess_light_cmd(
+    ctx: typer.Context,
+    camera: CameraArg,
+    max_exposure_ms: float = typer.Option(
+        0.0, help="exposure budget in ms (default: one frame at the camera's frame rate)"
+    ),
+    apply: bool = typer.Option(False, help="leave the camera at the recommended exposure"),
+) -> None:
+    """Assess the light on the scene the camera sees, against the camera model's baseline.
+
+    No test jig: point the camera at the real scene. Checks the camera state (linear
+    output), flicker, brightness, SNR, clipping and the light distribution, and says what
+    to change. Report saved under the data folder (two_d/site_light/<serial>/).
+
+    Example: camera-lab two-d assess-light triton
+    """
+    from camera_lab.two_d.site.light import assess_light
+
+    svc = state(ctx).service(ctx)
+    svc.open(camera, OWNER)
+    rep = assess_light(
+        svc,
+        camera,
+        actor="human",
+        max_exposure_us=max_exposure_ms * 1000 or None,
+        apply=apply,
+    )
+    marks = {"pass": "ok  ", "warn": "WARN", "fail": "FAIL", "info": "info"}
+    for c in rep.checks:
+        typer.echo(f"[{marks[c.status]}] {c.name}: {c.message}")
+        if c.action:
+            typer.echo(f"         → {c.action}")
+    typer.echo(f"\n{rep.summary()}")
+    if rep.folder:
+        typer.echo(f"report: {rep.folder}")
+
+
+# ------------------------------------------------------------- fingerprint
+@app.command("fingerprint")
+@handle_errors
+def fingerprint(ctx: typer.Context, camera: CameraArg) -> None:
+    """Measure the camera's fingerprint (Phase 11): timing, darks, flat, HDR channels, noise.
+
+    Each step says what to set (lens cap, diffuser, dimmer, iris) and asks you to
+    confirm every item; camera_lab measures the light where a recipe dictates it.
+    The camera is backed up first and restored at the end.
+
+    Example: camera-lab two-d fingerprint triton
+    """
+    from camera_lab.two_d.fingerprint.session import FingerprintSession
+
+    svc = state(ctx).service(ctx)
+    svc.open(camera, OWNER)
+    ses = FingerprintSession(svc, camera, actor="human")
+
+    def show(res: Any) -> bool:
+        mark = {"pass": "ok  ", "skipped": "skip", "fail": "STOP"}[res.status]
+        typer.echo(f"[{mark}] {ses.plan[res.step].label}: {res.message}")
+        return bool(res.ok)
+
+    if ses.recipe is not None:
+        typer.echo(f"Light recipe from the camera profile; lens {ses.lens_label}.")
+    while (step := ses.next_step()) is not None:
+        plan = ses.plan[step]
+        typer.echo(f"\n{plan.label}\n  {plan.instruction}")
+        if ses.recipe is None and plan.checks and any("Lens / iris" in c for c in plan.checks):
+            ses.set_lens(typer.prompt("Lens, iris and light now", default=ses.lens))
+        for check in plan.checks:  # every item must be confirmed (strict procedure)
+            while not typer.confirm(f"  {check}?", default=False):
+                typer.echo("  Do it first, then answer yes (Ctrl-C stops the fingerprint).")
+        failed = not show(ses.run(step, plan.checks))
+        if (
+            failed
+            and plan.can_skip
+            and typer.confirm("  Skip this setup (recorded in the report)?", default=False)
+        ):
+            show(ses.skip(step, typer.prompt("  Why", default="")))

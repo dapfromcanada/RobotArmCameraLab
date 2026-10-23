@@ -30,6 +30,7 @@ from camera_lab.two_d.gui.constants import ACTOR
 from camera_lab.two_d.gui.heartbeat import UiHeartbeat
 from camera_lab.two_d.gui.widgets.camera_list_panel import CameraListPanel
 from camera_lab.two_d.gui.widgets.camera_settings_panel import CameraSettingsPanel
+from camera_lab.two_d.gui.widgets.fingerprint_window import FingerprintWindow
 from camera_lab.two_d.gui.widgets.histogram_widget import HistogramWidget
 from camera_lab.two_d.gui.widgets.light_panel import LightPanel
 from camera_lab.two_d.gui.widgets.live_view_widget import LiveViewWidget
@@ -109,6 +110,7 @@ class MainWindow(QMainWindow):
         self.apply_preset_action = QAction("Apply preset...", self)
         self.lights_off_action = QAction("All lights off", self)
         self.setup_action = QAction("Camera setup...", self)
+        self.fingerprint_action = QAction("Camera fingerprint...", self)
 
         self.status_bar = QStatusBar()
         self.state_label = QLabel("")
@@ -126,6 +128,7 @@ class MainWindow(QMainWindow):
         self._capture_choices: list[tuple[str, str]] = []
         self._closed = False
         self._setup_window: SetupWindow | None = None
+        self._fingerprint_window: FingerprintWindow | None = None
         self._lock_note = ""  # who holds a camera we could not open
         self._job_handlers: dict[str, Callable[[Any], None]] = {
             "discover": self._show_discovered,
@@ -179,6 +182,7 @@ class MainWindow(QMainWindow):
         self.toolbar.addAction(self.lights_off_action)
         self.toolbar.addSeparator()
         self.toolbar.addAction(self.setup_action)
+        self.toolbar.addAction(self.fingerprint_action)
         self.addToolBar(self.toolbar)
 
         for label in (self.state_label, self.fps_label, self.lock_label):
@@ -219,6 +223,7 @@ class MainWindow(QMainWindow):
         self.apply_preset_action.triggered.connect(self._on_apply_preset_action_triggered)
         self.lights_off_action.triggered.connect(self._on_lights_off_action_triggered)
         self.setup_action.triggered.connect(self._on_setup_action_triggered)
+        self.fingerprint_action.triggered.connect(self._on_fingerprint_action_triggered)
 
     # --- Styling ---
     def _apply_styles(self) -> None:
@@ -257,6 +262,11 @@ class MainWindow(QMainWindow):
         return self._setup_window
 
     @property
+    def fingerprint_window(self) -> FingerprintWindow | None:
+        """The open "Camera fingerprint" window, if any."""
+        return self._fingerprint_window
+
+    @property
     def camera_id(self) -> str | None:
         """The open camera's serial."""
         return self._camera_id
@@ -282,6 +292,7 @@ class MainWindow(QMainWindow):
         self.save_preset_action.setEnabled(has_camera)
         self.apply_preset_action.setEnabled(has_camera)
         self.setup_action.setEnabled(has_camera and idle)
+        self.fingerprint_action.setEnabled(has_camera and idle)
         if not has_camera:
             state = "no camera"
         elif self._busy_jobs:
@@ -300,8 +311,14 @@ class MainWindow(QMainWindow):
         if window is not None:
             window.close()
 
+    def _close_fingerprint_window(self) -> None:
+        window, self._fingerprint_window = self._fingerprint_window, None
+        if window is not None:
+            window.close()
+
     def _reset_camera_state(self) -> None:
         self._close_setup_window()
+        self._close_fingerprint_window()
         self._camera_id = None
         self._live = False
         self._busy_jobs.clear()
@@ -535,12 +552,26 @@ class MainWindow(QMainWindow):
     def _on_setup_window_finished(self, _result: int) -> None:
         self._setup_window = None
 
+    def _on_fingerprint_action_triggered(self) -> None:
+        if self._fingerprint_window is not None:
+            self._fingerprint_window.raise_()
+            self._fingerprint_window.activateWindow()
+            return
+        window = FingerprintWindow(self.worker, self._live, parent=self)
+        window.finished.connect(self._on_fingerprint_window_finished)
+        self._fingerprint_window = window
+        window.show()
+
+    def _on_fingerprint_window_finished(self, _result: int) -> None:
+        self._fingerprint_window = None
+
     # ------------------------------------------------------------ closing
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt override
         """Stop the workers, close the cameras (releases locks) and turn the lights off."""
         if not self._closed:
             self._closed = True
             self._close_setup_window()
+            self._close_fingerprint_window()
             self.heartbeat.stop()
             if self.worker_thread.isRunning():
                 self.shutdown_requested.emit()  # blocks until the worker has shut down

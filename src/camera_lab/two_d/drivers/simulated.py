@@ -164,8 +164,13 @@ class SimulatedCamera(Camera2D):
         self._nvram.setdefault("user_sets", {})
         self._nvram.setdefault("boot_set", "Default")
         self._nvram.setdefault("power_on", time.monotonic())
+        #: False: like the JAI, no UserSetDefault: it boots from User Set 1 once that is saved
+        self._nvram.setdefault("boot_set_feature", True)
         self.sensor = sensor or SensorModel()
         self.scene: SceneKind = "chart"
+        #: light through the lens relative to the iris fully open (the human's iris: 0.25 =
+        #: two f-stops closed)
+        self.iris_transmission = 1.0
         self._light = light
         self._seed = seed
         self.ambient = ambient
@@ -547,6 +552,8 @@ class SimulatedCamera(Camera2D):
         """Render one frame for settings ``s`` (deterministic for ``(seed, frame_id)``)."""
         r = s.roi
         refl = self._reflectance()[r.y : r.y + r.height, r.x : r.x + r.width]
+        if self.iris_transmission != 1.0:
+            refl = refl * self.iris_transmission
         fmt = s.pixel_format
         if fmt.startswith("Mono"):
             refl = refl @ _REC709
@@ -638,11 +645,12 @@ class SimulatedCamera(Camera2D):
     def save_user_set(self, slot: str = "UserSet1", make_default: bool = True) -> dict[str, Any]:
         """The simulator keeps the saved settings in its 'flash' (survives reboot / reopen)."""
         self._nvram["user_sets"][slot] = self.get_settings()
-        if make_default:
+        feature = self._nvram["boot_set_feature"]
+        if (make_default and feature) or (not feature and slot == "UserSet1"):
             self._nvram["boot_set"] = slot
         return {
             "slot": slot,
-            "default": slot if make_default else None,
+            "default": slot if make_default and feature else None,
             "stored_features": None,
             "notes": [],
         }
@@ -650,8 +658,8 @@ class SimulatedCamera(Camera2D):
     def user_set_info(self) -> dict[str, Any]:
         return {
             "slots": ["Default", "UserSet1", "UserSet2"],
-            "boot_set_feature": True,
-            "boot_set": self._nvram["boot_set"],
+            "boot_set_feature": self._nvram["boot_set_feature"],
+            "boot_set": self._nvram["boot_set"] if self._nvram["boot_set_feature"] else None,
             "stored_features": None,
             "notes": ["simulated: every setting except hdr.enabled is stored"],
         }
@@ -665,8 +673,13 @@ class SimulatedCamera(Camera2D):
     def uptime_s(self) -> float | None:
         return time.monotonic() - float(self._nvram["power_on"])
 
+    def temperature_c(self) -> float | None:
+        return 41.5
+
     def set_boot_user_set(self, slot: str = "Default") -> dict[str, Any]:
         """The boot set, kept in the simulator's 'flash'."""
+        if not self._nvram["boot_set_feature"]:
+            raise NotImplementedError("this camera has no boot-set feature")
         if slot != "Default" and slot not in self._nvram["user_sets"]:
             raise ValueError(f"camera has no user set {slot!r}")
         before = self._nvram["boot_set"]

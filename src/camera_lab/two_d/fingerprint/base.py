@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -18,9 +19,12 @@ if TYPE_CHECKING:
     from camera_lab.two_d.profiles import FingerprintRecipe, FpLight
     from camera_lab.two_d.service import Actor, TwoDService
 from camera_lab.two_d.fingerprint.common import (
+    F_STOPS,
     FLICKER_MAX_INFLATION,
     FP_SETUPS,
+    LENS_STOPS_CLOSED,
     MAX_EXPOSURE_US,
+    PROBE_FRACTION,
     FpResult,
     FpSetup,
     FpStep,
@@ -38,6 +42,9 @@ class SessionBase:
     results: dict[FpStep, FpResult]  # per measurement
     setup_results: dict[FpSetup, FpResult]  # per setup (the rows)
     durations: dict[str, dict[str, float]]  # seconds per setup → measurement
+    temperatures: dict[str, float]  # camera °C at the start of each setup
+    gain_adjustable: bool  # the camera has a gain control (measured even if the mode pins it)
+    mode_gain_db: float  # the gain the design mode leaves (restored after gain sweeps)
     plan: dict[FpSetup, StepPlan]
     backup_id: str | None
     fmt: str
@@ -67,6 +74,13 @@ class SessionBase:
     min_exposure_us: float  # lit measurements (bench light ripple)
     reset_on_start: bool  # identity starts from factory Default (never trust the boot state)
     _row_noise_dn2: dict[str, float]  # sensor row noise per output ("HDR"/own, HDRChannelN)
+
+    def _temperature(self) -> float | None:
+        """The camera's internal temperature (°C), where it tells."""
+        try:
+            return self.service._open[self.camera_id].camera.temperature_c()
+        except Exception:  # read-only nicety: never stops a measurement
+            return None
 
     def _record(self, res: FpResult) -> FpResult:
         self.results[res.step] = res  # type: ignore[index]
@@ -162,6 +176,49 @@ class SessionBase:
         m = float(np.mean(fm.centre(self._plane()))) - blk
         self._last_fraction = m / span
         return exp if abs(m - fraction * span) <= 0.1 * span else None
+
+    def _light_rate(self, expected: float) -> float:
+        """Signal per µs above black on the camera's own output (linear) at the light now.
+
+        Starts at the exposure the expected light needs for ~30 % and steps by 8× if the
+        frame is clipped or nearly black.
+        """
+        if self.hdr_channels:
+            self._output("HDR", self.fmt)
+        e_lo, e_hi = self._lit_range()
+        span = self.full_scale - self.black_dn
+        exp = min(e_hi, max(e_lo, PROBE_FRACTION * span / max(self._ref_rate * expected, 1e-12)))
+        m = 0.0
+        for _ in range(6):
+            self._set(exposure_us=exp)
+            m = float(np.mean(fm.centre(self._plane()))) - self.black_dn
+            if m >= 0.9 * span and exp > e_lo:
+                exp = max(e_lo, exp / 8)
+            elif m < 0.02 * span and exp < e_hi:
+                exp = min(e_hi, exp * 8)
+            else:
+                break
+        return max(m, 0.0) / exp
+
+    def _check_light(
+        self, expected: float, tolerance: float, what: str
+    ) -> tuple[float, str | None]:
+        """(measured / expected light, a STOP message or None)."""
+        rate = self._light_rate(expected)
+        ratio = rate / max(self._ref_rate * expected, 1e-12)
+        if 1 / tolerance <= ratio <= tolerance:
+            return ratio, None
+        if ratio <= 0:
+            how = "no light reaches the camera"
+        else:
+            how = f"the light is {ratio:.2f}× what {what} should give"
+        return ratio, f"{how}: check the dimmer and the iris, then Retry"
+
+    def _lens_row_f(self) -> float:
+        """The lens row's f-number with a recipe: LENS_STOPS_CLOSED stops from the reference."""
+        ref = self.recipe.reference.f_number if self.recipe is not None else 1.0
+        target = ref * 2 ** (LENS_STOPS_CLOSED / 2)
+        return min(F_STOPS, key=lambda f: abs(math.log(f / target)))
 
     def _lens_at(self, light: FpLight) -> str:
         return f"{self.lens_label}, f/{light.f_number:g}"

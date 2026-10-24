@@ -829,8 +829,10 @@ def fingerprint(ctx: typer.Context, camera: CameraArg) -> None:
     while (step := ses.next_step()) is not None:
         plan = ses.plan[step]
         typer.echo(f"\n{plan.label}\n  {plan.instruction}")
-        if ses.recipe is None and plan.checks and any("Lens / iris" in c for c in plan.checks):
-            ses.set_lens(typer.prompt("Lens, iris and light now", default=ses.lens))
+        while ses.recipe is None and plan.active:  # recorded with every row: never empty
+            ses.set_lens(typer.prompt("Lens, iris and light now", default=ses.lens or None))
+            if ses.lens:
+                break
         for check in plan.checks:  # every item must be confirmed (strict procedure)
             while not typer.confirm(f"  {check}?", default=False):
                 typer.echo("  Do it first, then answer yes (Ctrl-C stops the fingerprint).")

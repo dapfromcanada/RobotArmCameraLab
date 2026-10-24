@@ -124,6 +124,11 @@ class Camera2D(ABC):
         """Seconds since the camera powered up / rebooted (None if it does not tell)."""
         return None
 
+    def temperature_c(self) -> float | None:
+        """The camera's internal temperature (``DeviceTemperature``, °C; None if it does not
+        tell). Read only."""
+        return None
+
     def set_boot_user_set(self, slot: str = "Default") -> dict[str, Any]:
         """Choose the user set the camera loads at power-up (writes camera memory: only via
         ``TwoDService.set_boot_user_set(confirm=True)``)."""

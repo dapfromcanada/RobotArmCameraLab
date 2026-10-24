@@ -1065,6 +1065,11 @@ class ArenaCamera(Camera2D):
         node = self._readable_node("DeviceUpTime")
         return float(node.value) if node is not None else None
 
+    def temperature_c(self) -> float | None:
+        with self._lock, self._guard():
+            node = self._readable_node("DeviceTemperature")
+            return float(node.value) if node is not None else None
+
     def set_boot_user_set(self, slot: str = "Default") -> dict[str, Any]:
         """UserSetDefault = slot (live TRI054S-C: Default, UserSet1, UserSet2)."""
         with self._lock, self._guard(), self._stream_paused():

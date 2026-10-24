@@ -22,6 +22,7 @@ from camera_lab.two_d.errors import ConfigurationError
 from camera_lab.two_d.fingerprint.base import SessionBase
 from camera_lab.two_d.fingerprint.common import (
     BLACK_RAISE,
+    BOOT_SLOT,
     CHANNEL_PREFIX,
     DARK_EXPOSURES_US,
     DARK_FRAMES,
@@ -70,6 +71,14 @@ class CoreMeasurements(SessionBase):
             self.service.set_mode(self.camera_id, self.mode, self.actor)
         self.gain_knob = "gain_db" in mode.knobs
         view = self.service.get_settings(self.camera_id)
+        g_rng = view.ranges.get("gain_db")
+        # measured on every camera with a gain control, also when the mode pins it: the
+        # paper describes the camera (Derek 2026-10-24)
+        self.gain_adjustable = (
+            g_rng is not None
+            and not isinstance(g_rng, NotAdjustable)
+            and float(g_rng.max.value) > float(g_rng.min.value)
+        )
         options = view.options.get("pixel_format", ())
         family = format_family(view.settings.pixel_format)
         same = [f for f in options if format_family(f) == family] or list(options)
@@ -94,6 +103,7 @@ class CoreMeasurements(SessionBase):
                 self._set(advanced={"black.level": target})
                 black_raised = target
         self.full_scale = float((1 << PIXEL_FORMAT_BITS[self.fmt]) - 1)
+        self.mode_gain_db = float(self._settings().gain_db)
         cam = self.service._open[self.camera_id].camera
         info = cam.info
         nodes = cam.identity_nodes()
@@ -114,6 +124,8 @@ class CoreMeasurements(SessionBase):
             "profile": prof.label,
             "mode": self.mode,
             "gain_is_knob": self.gain_knob,
+            "gain_adjustable": self.gain_adjustable,
+            "temperature_c": self._temperature(),
             "hdr_channels": list(self.hdr_channels),
             "channel_pixel_format": self.channel_fmt if self.hdr_channels else None,
             "black_level_raised_to": black_raised,
@@ -234,9 +246,8 @@ class CoreMeasurements(SessionBase):
     def step_dark(self) -> FpResult:
         """The human has put the lens cap on."""
         self._require("identity")
-        g_lo, g_hi = self._range("gain_db")
-        if not self.gain_knob:
-            g_lo = g_hi = self._gain()
+        g_lo, g_hi = self._range("gain_db") if self.gain_adjustable else (0.0, 0.0)
+        g_lo = self._gain() if not self.gain_knob else g_lo  # the design mode's gain first
         e_lo, e_hi = self._range("exposure_us")
         self._set(gain_db=g_lo, exposure_us=min(max(DARK_EXPOSURES_US[-1], e_lo), e_hi))
         if not fm.looks_dark(self._plane(), self.full_scale):
@@ -260,7 +271,7 @@ class CoreMeasurements(SessionBase):
                 self._row_noise_dn2["own"] = fm.row_variance(frames[0], frames[1])
             long_mean = mean
         g = g_lo + DARK_GAIN_STEP_DB
-        while self.gain_knob and g <= g_hi + 1e-6:
+        while self.gain_adjustable and g <= g_hi + 1e-6:
             self._set(gain_db=g, exposure_us=min(max(DARK_EXPOSURES_US[1], e_lo), e_hi))
             points.append(
                 fm.dark_point([self._plane() for _ in range(DARK_FRAMES)], g, DARK_EXPOSURES_US[1])
@@ -282,8 +293,7 @@ class CoreMeasurements(SessionBase):
                 }
             self._output("HDR", self.fmt)
         self._set(exposure_us=self._view_exposure)  # viewable again
-        if self.gain_knob:
-            self._set(gain_db=self._view_gain)
+        self._set(gain_db=self._view_gain if self.gain_knob else self.mode_gain_db)
         if long_mean is None:  # pragma: no cover - DARK_EXPOSURES_US is never empty
             raise RuntimeError("no dark frames")
         res = fm.dark_result(points, long_mean)
@@ -403,15 +413,51 @@ class CoreMeasurements(SessionBase):
             )
         )
 
+    def _dark_noise_at(self, gain_db: float) -> float | None:
+        """Read noise (DN) the darks measured at ``gain_db`` (nearest gain, 10 ms)."""
+        dark = self.results.get("dark")
+        pts = dark.data.get("points", []) if dark is not None else []
+        if not pts:
+            return None
+        best = min(pts, key=lambda p: (abs(p["gain_db"] - gain_db), abs(p["exposure_us"] - 1e4)))
+        return float(best["read_noise_dn"]) if abs(best["gain_db"] - gain_db) < 1.0 else None
+
+    def _gain_row(self, gain_db: float, exposure_us: float) -> dict[str, Any]:
+        """Signal, temporal noise and the photon-transfer estimate at one gain: system gain
+        k = shot variance / signal; read noise and full well in e- (the full well assumes
+        the output clips at full scale, i.e. the ADC is the limit)."""
+        self._set(gain_db=gain_db, exposure_us=exposure_us)
+        sig, var = [], []
+        for _ in range(NOISE_PAIRS):
+            m, v = fm.pair_temporal(fm.centre(self._plane()), fm.centre(self._plane()))
+            sig.append(m - self.black_dn)
+            var.append(v)
+        signal, v = statistics.median(sig), statistics.median(var)
+        sigma = math.sqrt(v)
+        rn = self._dark_noise_at(gain_db)
+        k = (v - (rn or 0.0) ** 2) / signal if signal > 0 else float("nan")
+        ok = k > 0 and math.isfinite(k)
+        return {
+            "gain_db": round(gain_db, 2),
+            "exposure_us": round(exposure_us, 1),
+            "signal_dn": round(signal, 2),
+            "sigma_dn": round(sigma, 3),
+            "snr": round(signal / sigma, 1) if sigma > 0 else None,
+            "read_noise_dn": round(rn, 3) if rn is not None else None,
+            "gain_dn_per_e": round(k, 4) if ok else None,
+            "read_noise_e": round(rn / k, 2) if ok and rn is not None else None,
+            "full_well_e": round((self.full_scale - self.black_dn) / k) if ok else None,
+        }
+
     def step_noise_gain(self) -> FpResult:
+        """Gain on every camera that has one (also where the design mode pins it): SNR and
+        the photon-transfer estimate per gain at a constant output; gain-mode switches. A
+        prism camera's other gain mode is measured at its 0 dB too (JAI: master 0 dB is about
+        individual +6 dB, which may halve the full well)."""
         self._require("flat")
-        if not self.gain_knob:
+        if not self.gain_adjustable:
             return self._record(
-                FpResult(
-                    step="noise_gain",
-                    status="skipped",
-                    message=f"gain is not a knob of mode {self.mode}",
-                )
+                FpResult(step="noise_gain", status="skipped", message="the camera has no gain")
             )
         g_lo, g_hi = self._range("gain_db")
         e_lo, e_hi = self._lit_range()
@@ -422,24 +468,10 @@ class CoreMeasurements(SessionBase):
             exp = base / 10 ** ((g - g_lo) / 20)
             if exp < e_lo:
                 break
-            self._set(gain_db=g, exposure_us=min(e_hi, exp))
-            sig, var = [], []
-            for _ in range(NOISE_PAIRS):
-                m, v = fm.pair_temporal(fm.centre(self._plane()), fm.centre(self._plane()))
-                sig.append(m - self.black_dn)
-                var.append(v)
-            signal, sigma = statistics.median(sig), math.sqrt(statistics.median(var))
-            rows.append(
-                {
-                    "gain_db": round(g, 2),
-                    "exposure_us": round(exp, 1),
-                    "signal_dn": round(signal, 2),
-                    "sigma_dn": round(sigma, 3),
-                    "snr": round(signal / sigma, 1) if sigma > 0 else None,
-                }
-            )
+            rows.append(self._gain_row(g, min(e_hi, exp)))
             g += NOISE_GAIN_STEP_DB
-        self._set(gain_db=g_lo)
+        modes = self._other_gain_mode(base, e_lo, e_hi)
+        self._set(gain_db=self.mode_gain_db, exposure_us=self._ref_exposure)
         switches = [
             rows[i]["gain_db"]
             for i in range(1, len(rows))
@@ -448,32 +480,82 @@ class CoreMeasurements(SessionBase):
             and rows[i]["snr"] > GAIN_SWITCH_GAIN * rows[i - 1]["snr"]
         ]
         msg = f"{len(rows)} gain steps measured"
+        if rows and rows[0]["full_well_e"]:
+            msg += (
+                f"; at {rows[0]['gain_db']:g} dB {rows[0]['gain_dn_per_e']} DN/e-, full well "
+                f"≈ {rows[0]['full_well_e']} e-"
+            )
         if switches:
             at = ", ".join(f"{s:g} dB" for s in switches)
             msg += f"; SNR rises at {at} (possible gain-mode switch)"
+        if modes:
+            msg += f"; {modes['summary']}"
         return self._record(
             FpResult(
                 step="noise_gain",
                 status="pass",
                 message=msg,
-                data={"table": rows, "snr_rises_at_db": switches},
+                data={"table": rows, "snr_rises_at_db": switches, "gain_modes": modes or None},
             )
         )
 
+    def _other_gain_mode(self, base: float, e_lo: float, e_hi: float) -> dict[str, Any]:
+        """Prism cameras with ``prism.gain_mode``: the other mode at its lowest gain, same
+        exposure as the first gain row, plus where it clips (exposure steps up to saturation)."""
+        s0 = self._settings()
+        now = s0.advanced.get("prism.gain_mode")
+        if now not in ("master", "individual"):
+            return {}
+        other = "individual" if now == "master" else "master"
+        ref = self._gain_row(self._range("gain_db")[0], min(e_hi, max(e_lo, base)))
+        self._set(advanced={"prism.gain_mode": other})
+        try:
+            g0 = self._range("gain_db")[0]
+            row = self._gain_row(g0, min(e_hi, max(e_lo, base)))
+            rate = row["signal_dn"] / max(row["exposure_us"], 1e-9)
+            span = self.full_scale - self.black_dn
+            top = 0.0
+            for f in (0.9, 1.1, 1.4):
+                exp = min(e_hi, max(e_lo, f * span / max(rate, 1e-12)))
+                self._set(exposure_us=exp)
+                top = max(top, float(np.mean(fm.centre(self._plane()))) - self.black_dn)
+            k = row["gain_dn_per_e"]
+            row["clips_at_dn"] = round(top + self.black_dn, 1)
+            row["full_well_e"] = round(top / k) if k else None
+        finally:
+            self._set(advanced={"prism.gain_mode": now}, gain_db=self.mode_gain_db)
+        ratio = row["signal_dn"] / ref["signal_dn"] if ref["signal_dn"] > 0 else float("nan")
+        return {
+            now: ref,
+            other: row,
+            "signal_ratio": round(ratio, 3),
+            "summary": f"gain mode {other} at {row['gain_db']:g} dB gives {ratio:.2f}× the "
+            f"signal of {now} at {ref['gain_db']:g} dB; full well ≈ {row['full_well_e']} e- "
+            f"(clips at {row['clips_at_dn']:.0f} DN) vs ≈ {ref['full_well_e']} e-",
+        }
+
     def step_user_sets(self) -> FpResult:
-        """What survives a power cycle: marker values → User Set 2 (boot set) → software
-        reboot (identical to a power cycle, verified 2026-10-24) → kept / lost per setting.
-        The boot set is put back afterwards; the report restores the settings."""
+        """What survives a power cycle: marker values → a user set the camera boots from →
+        software reboot (identical to a power cycle on the TRI054S, verified 2026-10-24) →
+        kept / lost per setting. With a boot-set feature: User Set 2 as the boot set, the boot
+        set put back afterwards. Without one (JAI: boots from User Set 1 once anything was
+        saved): User Set 1, refilled with factory Default afterwards so the camera boots as
+        from Default. The report restores the live settings."""
         self._require("identity")
         info = self.service.user_set_info(self.camera_id)
         slots = info.get("slots", [])
-        if not info.get("boot_set_feature") or PERSIST_SLOT not in slots:
+        boot_feature = bool(info.get("boot_set_feature"))
+        if boot_feature and PERSIST_SLOT in slots:
+            slot = PERSIST_SLOT
+        elif not boot_feature and BOOT_SLOT in slots:
+            slot = BOOT_SLOT
+        else:
             return self._record(
                 FpResult(
                     step="user_sets",
                     status="pass",
-                    message=f"user sets {', '.join(slots) or 'none'}; no boot-set feature or no "
-                    f"{PERSIST_SLOT}: persistence not tested (power-cycle test by a human)",
+                    message=f"user sets {', '.join(slots) or 'none'}: no slot to test with; "
+                    "persistence not tested (power-cycle test by a human)",
                     data=info,
                 )
             )
@@ -510,14 +592,36 @@ class CoreMeasurements(SessionBase):
         marked = self._settings()
         prev_boot = info.get("boot_set") or "Default"
         self.service.save_user_set(
-            self.camera_id, PERSIST_SLOT, confirm=True, make_default=True, actor=self.actor
+            self.camera_id, slot, confirm=True, make_default=boot_feature, actor=self.actor
         )
         try:
             restart = self.service.reboot_camera(self.camera_id, confirm=True, actor=self.actor)
             after = self._settings()
+        except ConfigurationError as exc:  # no DeviceReset
+            restart, after = {"error": str(exc)}, None
         finally:
-            self.service.set_boot_user_set(
-                self.camera_id, prev_boot, confirm=True, actor=self.actor
+            if boot_feature:
+                self.service.set_boot_user_set(
+                    self.camera_id, prev_boot, confirm=True, actor=self.actor
+                )
+            else:
+                self.service.refill_user_set_with_default(
+                    self.camera_id, slot, confirm=True, actor=self.actor
+                )
+        back = (
+            f"boot set back to {prev_boot}"
+            if boot_feature
+            else f"{slot} refilled with factory Default (the camera boots as from Default)"
+        )
+        if after is None:
+            return self._record(
+                FpResult(
+                    step="user_sets",
+                    status="pass",
+                    message=f"the camera cannot reboot itself ({restart['error']}): persistence "
+                    f"not tested (power-cycle test by a human); {back}",
+                    data={**info, "restart": restart},
+                )
             )
         kept: list[str] = []
         lost: list[str] = []
@@ -551,12 +655,13 @@ class CoreMeasurements(SessionBase):
                 status="pass",
                 message=f"after a reboot ({restart['verified_by']}"
                 + ("" if verified is not False else ", NOT verified")
-                + f") from {PERSIST_SLOT}: kept {', '.join(kept) or 'nothing'}; lost "
-                f"{', '.join(lost) or 'nothing'}; boot set back to {prev_boot}",
+                + f") from {slot}: kept {', '.join(kept) or 'nothing'}; lost "
+                f"{', '.join(lost) or 'nothing'}; {back}",
                 data={
                     **info,
-                    "persistence": {"kept": kept, "lost": lost, "slot": PERSIST_SLOT},
+                    "persistence": {"kept": kept, "lost": lost, "slot": slot},
                     "restart": restart,
+                    "slot_after": back,
                 },
             )
         )

@@ -76,6 +76,18 @@ def test_fingerprint_recovers_the_sensor(svc: TwoDService, tmp_path: Path) -> No
     snr = [r["snr"] for r in table]
     assert snr == sorted(snr, reverse=True)  # this sensor has no gain-mode switch
     assert noise.data["snr_rises_at_db"] == []
+    assert table[0]["gain_dn_per_e"] == pytest.approx(K, rel=0.1)  # photon transfer per gain
+    assert table[0]["read_noise_e"] == pytest.approx(5.0, rel=0.2)
+    cam = svc._open[SIM].camera
+    cam.iris_transmission = 0.5  # type: ignore[attr-defined]  # one stop only: STOP
+    stop = ses.step_lens_iris()
+    assert stop.status == "fail" and "close the iris" in stop.message
+    cam.iris_transmission = 0.25  # type: ignore[attr-defined]  # two f-stops closed
+    lens = ses.step_lens_iris()
+    assert lens.ok and lens.data["light_vs_diffuser_row"] == pytest.approx(0.25, rel=0.05)
+    assert ses.step_light_back().status == "fail"  # iris still closed
+    cam.iris_transmission = 1.0  # type: ignore[attr-defined]
+    assert ses.step_light_back().ok
     assert ses.step_user_sets().ok
     rep = ses.step_report()
     assert rep.ok and "camera restored" in rep.message
@@ -324,14 +336,21 @@ def test_hdr_recipe_stages_verify_the_light(
         assert ses.recipe is not None and ses.lens == "Kowa 8 mm, f/1.4"
         assert ses.min_exposure_us == 2000.0  # from the bench file
         ses.min_exposure_us = 0.0  # stage logic under test, not the bench's exposure floor
-        labels = [ses.plan[s].label for s in ("cap", "diffuser", "light_2", "light_3", "finish")]
+        labels = [
+            ses.plan[s].label for s in ("cap", "diffuser", "light_2", "light_3", "lens", "finish")
+        ]
         assert labels == [
             "1. Lens cap on",
             "2. Diffuser on, iris f/1.4",
             "3. Iris f/8 (HDR ch 2)",
             "4. Iris f/16 (HDR ch 1)",
-            "5. Iris back open: finish",
+            "5. Lens / iris",
+            "6. Iris back: finish",
         ]
+        assert ses.plan["lens"].checks == ("Iris at f/2.8", "Diffuser still on the lens")
+        assert ses.plan["finish"].checks[-1] == (
+            "OK to write test values to UserSet2 and restart the camera"
+        )
         assert ses.plan["diffuser"].measures == (
             "timing",
             "flat",
@@ -482,7 +501,13 @@ def test_setups_run_each_bench_state_once(svc: TwoDService, tmp_path: Path) -> N
     """One Run per bench state: cap (identity + darks ×3), diffuser (timing, flat ×3,
     noise), finish (user sets, report)."""
     ses = FingerprintSession(svc, SIM, root=tmp_path / "fp", reset=False)
-    assert [s for s in ses.plan if ses.plan[s].active] == ["cap", "diffuser", "light_2", "finish"]
+    assert [s for s in ses.plan if ses.plan[s].active] == [
+        "cap",
+        "diffuser",
+        "light_2",
+        "lens",
+        "finish",
+    ]
     assert ses.plan["cap"].label == "1. Lens cap on"
     assert ses.plan["cap"].measures == ("identity", "dark")
     assert ses.plan["diffuser"].measures == ("timing", "flat", "colour", "noise_gain")
@@ -490,6 +515,9 @@ def test_setups_run_each_bench_state_once(svc: TwoDService, tmp_path: Path) -> N
     assert ses.next_step() == "cap"
     with pytest.raises(InvalidRequestError, match="confirm the checklist"):
         ses.run("cap", ["Lens cap on"])
+    with pytest.raises(InvalidRequestError, match="Lens / iris box"):  # never "not stated"
+        ses.run("cap", ses.plan["cap"].checks)
+    ses.set_lens("sim lens, f/2")
 
     stop = ses.run("cap", ses.plan["cap"].checks)  # the chart is in view: no cap
     assert stop.status == "fail" and stop.message.startswith("darks: light reaches the sensor")
@@ -497,7 +525,7 @@ def test_setups_run_each_bench_state_once(svc: TwoDService, tmp_path: Path) -> N
     _scene(svc, "cap")
     cap = ses.run("cap", ses.plan["cap"].checks)
     assert cap.status == "pass", cap.message
-    assert set(cap.data) == {"identity", "dark", "durations_s"}
+    assert set(cap.data) == {"identity", "dark", "durations_s", "temperature_c"}
     assert set(cap.data["durations_s"]) == {"identity", "dark"}
     assert ses.durations["cap"] == cap.data["durations_s"]
     reps = cap.data["dark"]["repeats"]
@@ -514,12 +542,22 @@ def test_setups_run_each_bench_state_once(svc: TwoDService, tmp_path: Path) -> N
     with pytest.raises(InvalidRequestError, match="cannot be skipped"):
         ses.skip("diffuser", "no")
     assert ses.run("light_2", ses.plan["light_2"].checks).status == "skipped"  # no channels
+    cam = svc._open[SIM].camera
+    cam.iris_transmission = 0.25  # type: ignore[attr-defined]  # the human closes 2 stops
+    ses.set_lens("sim lens, f/4")
+    lens = ses.run("lens", ses.plan["lens"].checks)
+    assert lens.status == "pass", lens.message
+    cam.iris_transmission = 1.0  # type: ignore[attr-defined]
+    ses.set_lens("sim lens, f/2")
     fin = ses.run("finish", ses.plan["finish"].checks)
     assert fin.status == "pass", fin.message
     assert ses.next_step() is None
     doc = yaml.safe_load((Path(fin.data["report"]["folder"]) / "fingerprint.yaml").read_text())
     md = (Path(fin.data["report"]["folder"]) / "report.md").read_text()
     assert "| cap | identity" in md and "**all**" in md and "Image pipeline (" in md
+    assert "Camera temperature:** cap 41.5 °C" in md
+    assert "**lens_iris** (pass): sim lens, f/4: light 0.2" in md
+    assert doc["lens_iris"]["lens"] == "sim lens, f/4"
     assert doc["setups"]["cap"]["status"] == "pass"
     assert doc["dark"]["repeats"]["read_noise_dn"]["median"] > 0
 
@@ -574,3 +612,70 @@ def test_lit_measurements_respect_the_bench_minimum(svc: TwoDService, tmp_path: 
     ses = FingerprintSession(svc, SIM, root=tmp_path / "fp", reset=False)
     assert ses.min_exposure_us == 2000.0
     assert ses._lit_range()[0] >= 2000.0
+
+
+def test_user_sets_without_a_boot_set_feature(svc: TwoDService, tmp_path: Path) -> None:
+    """Like the JAI: no UserSetDefault, it boots from User Set 1 once that is saved. The test
+    uses User Set 1, then refills it with factory Default (boots as from Default)."""
+    cam = svc._open[SIM].camera
+    cam._nvram["boot_set_feature"] = False  # type: ignore[attr-defined]
+    ses = FingerprintSession(svc, SIM, root=tmp_path / "fp", reset=False)
+    assert ses.plan["finish"].checks[-1] == (
+        "OK to write test values to UserSet1 and restart the camera; UserSet1 is then refilled "
+        "with factory Default"
+    )
+    assert ses.step_identity().ok
+    res = ses.step_user_sets()
+    assert res.ok, res.message
+    assert "from UserSet1: kept exposure_us, gain_db" in res.message
+    assert "UserSet1 refilled with factory Default" in res.message
+    nv = svc._open[SIM].camera._nvram  # type: ignore[attr-defined]
+    assert nv["boot_set"] == "UserSet1"
+    assert nv["user_sets"]["UserSet1"].exposure_us == svc._open[SIM].camera._factory.exposure_us  # type: ignore[attr-defined]
+
+
+def test_other_gain_mode_is_measured_on_prism_cameras(
+    svc: TwoDService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """JAI: master 0 dB ≈ individual +6 dB. The other mode is measured at its 0 dB."""
+    from types import SimpleNamespace
+
+    ses = FingerprintSession(svc, SIM, root=tmp_path / "fp", reset=False)
+    state = {"mode": "master", "gain": 0.0, "exp": 1000.0}
+    ses.black_dn, ses.full_scale = 100.0, 4095.0
+
+    def settings() -> SimpleNamespace:
+        return SimpleNamespace(advanced={"prism.gain_mode": state["mode"]}, gain_db=state["gain"])
+
+    def set_(**kw: object) -> None:
+        if "advanced" in kw:
+            state["mode"] = kw["advanced"]["prism.gain_mode"]  # type: ignore[index]
+        if "exposure_us" in kw:
+            state["exp"] = float(kw["exposure_us"])  # type: ignore[arg-type]
+
+    def gain_row(g: float, exp: float) -> dict[str, object]:
+        state["exp"] = exp
+        k = 0.9 if state["mode"] == "master" else 0.45  # individual: half the DN per e-
+        sig = (2.0 if state["mode"] == "master" else 1.0) * exp
+        return {
+            "gain_db": g,
+            "exposure_us": exp,
+            "signal_dn": sig,
+            "gain_dn_per_e": k,
+            "full_well_e": round(3995 / k),
+        }
+
+    def plane() -> np.ndarray:  # individual mode: the sensor clips at 3 000 DN above black
+        rate = 2.0 if state["mode"] == "master" else 1.0
+        return np.full((20, 20), 100.0 + min(rate * state["exp"], 3000.0))
+
+    monkeypatch.setattr(ses, "_settings", settings)
+    monkeypatch.setattr(ses, "_set", set_)
+    monkeypatch.setattr(ses, "_gain_row", gain_row)
+    monkeypatch.setattr(ses, "_plane", plane)
+    monkeypatch.setattr(ses, "_range", lambda name: (0.0, 18.0))
+    out = ses._other_gain_mode(500.0, 10.0, 1e6)
+    assert out["signal_ratio"] == pytest.approx(0.5)
+    assert out["individual"]["clips_at_dn"] == pytest.approx(3100.0)
+    assert out["individual"]["full_well_e"] == round(3000 / 0.45)
+    assert state["mode"] == "master"  # put back

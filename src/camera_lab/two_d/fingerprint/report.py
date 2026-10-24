@@ -57,8 +57,10 @@ class ReportMixin(SessionBase):
                 "lens_and_installation (re-measure on the machine)": [
                     "flat.vignetting_corner_ratio",
                     "master_flat",
+                    "lens_iris",
                 ],
             },
+            "temperatures_c": dict(self.temperatures),
             **{s: self.results[s].data for s in FP_STEPS if s in self.results and s != "report"},
             "hdr_channels": dict(self._channels),
             "setups": {
@@ -85,8 +87,13 @@ class ReportMixin(SessionBase):
             f"- **Lens / iris:** {ident.get('lens') or 'not stated'}",
             f"- **Conditions:** gain {ident.get('conditions', {}).get('gain_db')} dB, black level "
             f"{ident.get('conditions', {}).get('black_level')}",
-            "",
         ]
+        if self.temperatures:
+            lines.append(
+                "- **Camera temperature:** "
+                + ", ".join(f"{s} {t:.1f} °C" for s, t in self.temperatures.items())
+            )
+        lines.append("")
         lines += [f"- **{r.step}** ({r.status}): {r.message}" for r in self.results.values()]
         snr = self.results["flat"].data.get("response", {}).get("snr", [])
         if snr:
@@ -150,17 +157,37 @@ class ReportMixin(SessionBase):
                     f"{pt['full_well_e']:.0f} | {pt['linearity_error_pct']:.2f} | "
                     f"{ch.get('lens') or '-'} |"
                 )
-        rows = self.results["noise_gain"].data.get("table", [])
+        gain = self.results.get("noise_gain")
+        rows = gain.data.get("table", []) if gain is not None else []
         if rows:
             lines += [
                 "",
-                "| gain dB | exposure µs | signal DN | σ DN | SNR |",
-                "|---|---|---|---|---|",
+                "| gain dB | exposure µs | signal DN | σ DN | SNR | DN/e- | read noise e- "
+                "| full well e- |",
+                "|---|---|---|---|---|---|---|---|",
             ]
             lines += [
                 f"| {r['gain_db']} | {r['exposure_us']} | {r['signal_dn']} | "
-                f"{r['sigma_dn']} | {r['snr']} |"
+                f"{r['sigma_dn']} | {r['snr']} | {r.get('gain_dn_per_e') or '-'} | "
+                f"{r.get('read_noise_e') or '-'} | {r.get('full_well_e') or '-'} |"
                 for r in rows
+            ]
+            modes = gain.data.get("gain_modes") if gain is not None else None
+            if modes:
+                lines.append(f"\nGain modes: {modes['summary']}.")
+        lens = self.results.get("lens_iris")
+        if lens is not None and lens.status == "pass" and lens.data.get("corner_ratio"):
+            colour = self.results.get("colour")
+            ref = colour.data.get("corner_ratio", {}) if colour is not None else {}
+            lines += [
+                "",
+                f"| corner / centre | diffuser row ({ident.get('lens') or '-'}) | lens row "
+                f"({lens.data.get('lens') or '-'}) |",
+                "|---|---|---|",
+            ]
+            lines += [
+                f"| {name} | {ref.get(name, float('nan')):.3f} | {val:.3f} |"
+                for name, val in lens.data["corner_ratio"].items()
             ]
         (folder / "report.md").write_text("\n".join(lines) + "\n")
         restored = ""

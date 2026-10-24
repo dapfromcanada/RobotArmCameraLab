@@ -59,6 +59,8 @@ def open_fp(qtbot: QtBot, main: MainWindow) -> FingerprintWindow:
 
 def press(qtbot: QtBot, dlg: FingerprintWindow) -> None:
     """Tick the checklist (the human confirms) and press Run step / Retry."""
+    if not dlg.lens_edit.text():
+        dlg.lens_edit.setText("sim lens, f/2")
     dlg.tick_all()
     button = dlg.retry_button if dlg.failed_step is not None else dlg.run_step_button
     qtbot.waitUntil(button.isEnabled, timeout=WAIT_MS)
@@ -85,14 +87,14 @@ def test_action_needs_an_open_camera(qtbot: QtBot, fp_service: TwoDService) -> N
     win.close()
 
 
-ROWS = ["cap", "diffuser", "light_2", "finish"]  # sim: HDR-capable, no recipe → discovery
+ROWS = ["cap", "diffuser", "light_2", "lens", "finish"]  # sim: HDR-capable, no recipe → discovery
 
 
 def test_window_opens_with_live_frames(qtbot: QtBot, main: MainWindow) -> None:
     dlg = open_fp(qtbot, main)
     qtbot.waitUntil(dlg.live_view.has_image, timeout=WAIT_MS)
-    assert len(FP_SETUPS) == 6
-    assert dlg.step_row_count() == 4  # unused setups get no row
+    assert len(FP_SETUPS) == 7
+    assert dlg.step_row_count() == 5  # unused setups get no row
     assert dlg.row_states() == dict.fromkeys(ROWS, "pending")
     assert not dlg.retry_button.isEnabled()
     assert not dlg.skip_button.isEnabled()
@@ -101,7 +103,7 @@ def test_window_opens_with_live_frames(qtbot: QtBot, main: MainWindow) -> None:
 def test_run_needs_every_checklist_item(qtbot: QtBot, main: MainWindow) -> None:
     dlg = open_fp(qtbot, main)
     items = dlg.checklist()
-    assert "Iris fully open" in items and "Lens cap on" in items
+    assert any(i.startswith("Iris fully open") for i in items) and "Lens cap on" in items
     assert "Focus: not needed" in items
     assert not dlg.run_step_button.isEnabled()
     boxes = dlg._check_boxes
@@ -109,7 +111,11 @@ def test_run_needs_every_checklist_item(qtbot: QtBot, main: MainWindow) -> None:
         box.setChecked(True)
     assert not dlg.run_step_button.isEnabled()  # one item left
     boxes[-1].setChecked(True)
+    assert not dlg.run_step_button.isEnabled()  # the Lens / iris box is empty
+    dlg.lens_edit.setText("sim lens, f/2")
     assert dlg.run_step_button.isEnabled()
+    dlg.lens_edit.setText("  ")
+    assert not dlg.run_step_button.isEnabled()
 
 
 def test_instruction_changes_per_setup(
@@ -171,6 +177,12 @@ def test_full_run_reaches_the_report_without_a_ui_stall(
     set_scene(fp_service, "flat")
     run_step(qtbot, dlg, "diffuser")
     run_step(qtbot, dlg, "light_2", "skipped")  # not an HDR camera
+    cam = fp_service._open[SIM].camera
+    cam.iris_transmission = 0.25  # type: ignore[attr-defined]  # the human closes 2 stops
+    dlg.lens_edit.setText("sim lens, f/5.6")
+    run_step(qtbot, dlg, "lens")
+    cam.iris_transmission = 1.0  # type: ignore[attr-defined]
+    dlg.lens_edit.setText("sim lens, f/2.8")
     run_step(qtbot, dlg, "finish")
     qtbot.waitUntil(lambda: dlg.next_step is None, timeout=WAIT_MS)
     texts = "\n".join(dlg.result_texts())
@@ -201,8 +213,8 @@ def test_step_rows_populate_and_clear_without_leftovers(qtbot: QtBot, main: Main
         dlg._populate_step_list()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     rows = [w for w in dlg.steps_container.findChildren(QFrame) if w.objectName() == "setupRow"]
-    assert len(rows) == 4
-    assert dlg.step_row_count() == 4
+    assert len(rows) == 5
+    assert dlg.step_row_count() == 5
     dlg._clear_step_list()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     assert dlg.step_row_count() == 0

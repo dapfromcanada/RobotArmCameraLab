@@ -52,7 +52,8 @@ DEFAULT_LABELS: dict[FpSetup, str] = {
     "light_2": "3. Light change",
     "light_3": "4. Light change",
     "light_4": "5. Light change",
-    "finish": "6. Finish",
+    "lens": "6. Lens / iris",
+    "finish": "7. Finish",
 }
 STATE_PENDING = "pending"
 STATE_RUNNING = "running"
@@ -85,7 +86,9 @@ COPIED_TEXT = "Messages copied to the clipboard (paste them into an email or a c
 #: Messages and results can be selected with the mouse and copied (Derek 2026-10-22).
 SELECTABLE = Qt.TextInteractionFlag.TextSelectableByMouse
 LENS_LABEL = "Lens / iris:"
-LENS_PLACEHOLDER = "e.g. Kowa 8 mm, f/1.4 (fully open), dimmer 6 - recorded with each step"
+LENS_PLACEHOLDER = (
+    "required: e.g. Kowa 8 mm, f/1.4 (fully open), dimmer 6 - recorded with each step"
+)
 DONE_INSTRUCTION = "All steps passed. The fingerprint is saved."
 NO_VALUE_TEXT = "-"
 RISES_TEXT = "SNR rises at"
@@ -204,6 +207,7 @@ class FingerprintWindow(QDialog):
         self.retry_button.clicked.connect(self._on_retry_button_clicked)
         self.copy_button.clicked.connect(self._on_copy_button_clicked)
         self.skip_button.clicked.connect(self._on_skip_button_clicked)
+        self.lens_edit.textChanged.connect(self._on_lens_edit_text_changed)
 
     # --- Styling ---
     def _apply_styles(self) -> None:
@@ -436,7 +440,9 @@ class FingerprintWindow(QDialog):
     def _refresh_ui_state(self) -> None:
         idle = self._session_ready and not self._busy
         self._refresh_instruction()
-        ticked = self._checks_done()
+        # the lens and iris go into every row's record (Derek 2026-10-24: an empty box left
+        # the JAI report saying "not stated")
+        ticked = self._checks_done() and bool(self.lens_edit.text().strip())
         can_run = idle and self._next_step is not None and self._failed_step is None
         self.run_step_button.setEnabled(can_run and ticked)
         self.retry_button.setEnabled(idle and self._failed_step is not None and ticked)
@@ -643,6 +649,9 @@ class FingerprintWindow(QDialog):
             if state == STATE_RUNNING:
                 return step
         return None
+
+    def _on_lens_edit_text_changed(self, _text: str) -> None:
+        self._refresh_ui_state()
 
     def _on_run_step_button_clicked(self) -> None:
         if self._next_step is not None:

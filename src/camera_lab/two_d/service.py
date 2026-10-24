@@ -536,6 +536,25 @@ class TwoDService:
         )
         return {**out, "backup_before": backup.backup_id}
 
+    def refill_user_set_with_default(
+        self, camera_id: str, slot: str, *, confirm: bool, actor: Actor = "human"
+    ) -> dict[str, Any]:
+        """Load factory Default (live), then save it into ``slot``: a camera without a
+        boot-set feature that boots from ``slot`` (JAI: User Set 1) then starts as from
+        Default. Writes camera memory: needs confirm=True; the live settings are left at
+        Default (callers restore their own)."""
+        if confirm is not True:
+            raise InvalidRequestError("refilling a user set writes camera memory: confirm=True")
+        serial, oc = self._require_open(camera_id)
+        try:
+            oc.camera.load_user_set("Default")
+        except NotImplementedError:
+            raise ConfigurationError(f"camera {serial}: its driver cannot load user sets") from None
+        oc.mode = None
+        out = self.save_user_set(serial, slot, confirm=True, make_default=False, actor=actor)
+        _log.info("user_set_refilled_with_default", camera_id=serial, slot=slot, actor=actor)
+        return out
+
     def reboot_camera(
         self,
         camera_id: str,

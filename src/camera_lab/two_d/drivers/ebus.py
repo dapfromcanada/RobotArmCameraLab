@@ -523,6 +523,17 @@ class EbusCamera(Camera2D):
             with contextlib.suppress(Exception):
                 self._param("DeviceReset").Execute()
 
+    def temperature_c(self) -> float | None:
+        """``DeviceTemperature`` (manual: with ``DeviceTemperatureSelector``; the default
+        selection is read)."""
+        with self._lock, self._guard():
+            if self._param("DeviceTemperature") is None:
+                return None
+            try:
+                return float(self._get("DeviceTemperature"))
+            except (_ParamError, TypeError, ValueError):
+                return None
+
     def load_user_set(self, slot: str = "Default") -> dict[str, Any]:
         """UserSetSelector = slot → UserSetLoad (stream stopped), then the open-time setup.
         The JAI has no UserSetDefault: it boots from User Set 1 (power-cycle test

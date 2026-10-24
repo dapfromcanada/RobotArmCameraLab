@@ -357,11 +357,19 @@ class ColourPlane(_Frozen):
     temporal_sigma_dn: float
     snr: float
     prnu_pct: float
+    corner_ratio: float = 1.0  # vignetting of this plane: corners / centre
 
 
 class ColourResult(_Frozen):
     planes: tuple[ColourPlane, ...]
     green_imbalance_pct: float | None  # Bayer: (Gr − Gb) / mean green
+
+    @property
+    def corner_colour_cast_pct(self) -> float:
+        """How far the colours drift apart at the corners: (max / min corner ratio of the
+        planes − 1) × 100. 0 = every colour shades alike (prism or lens colour shading)."""
+        ratios = [p.corner_ratio for p in self.planes if p.corner_ratio > 0]
+        return (max(ratios) / min(ratios) - 1) * 100 if ratios else 0.0
 
 
 def colour_result(frames: Sequence[Array], pixel_format: str, black_dn: float) -> ColourResult:
@@ -370,14 +378,14 @@ def colour_result(frames: Sequence[Array], pixel_format: str, black_dn: float) -
     if not per or not per[0]:
         raise ValueError("no colour planes: mono data")
     n = len(per)
-    stats: dict[str, tuple[float, float, float]] = {}
+    stats: dict[str, tuple[float, float, float, float]] = {}
     for name in per[0]:
         stack = [p[name] for p in per]
         mean = np.mean(stack, axis=0)
         _, tvar = pair_temporal(centre(stack[0]), centre(stack[1]))
         signal = float(centre(mean).mean()) - black_dn
-        prnu = flat_result(mean, black_dn, tvar, n).prnu_pct
-        stats[name] = (signal, tvar, prnu)
+        flat = flat_result(mean, black_dn, tvar, n)
+        stats[name] = (signal, tvar, flat.prnu_pct, flat.vignetting_corner_ratio)
     greens = [v[0] for k, v in stats.items() if k.startswith("G")]
     green = float(np.mean(greens)) if greens else float("nan")
     planes = tuple(
@@ -388,8 +396,9 @@ def colour_result(frames: Sequence[Array], pixel_format: str, black_dn: float) -
             temporal_sigma_dn=math.sqrt(tvar),
             snr=sig / math.sqrt(tvar) if tvar > 0 else float("nan"),
             prnu_pct=prnu,
+            corner_ratio=corner,
         )
-        for k, (sig, tvar, prnu) in stats.items()
+        for k, (sig, tvar, prnu, corner) in stats.items()
     )
     imbalance = None
     if "Gr" in stats and "Gb" in stats and green > 0:

@@ -93,23 +93,27 @@ def _rows(ses: FingerprintSession) -> list[str]:
 
 def test_modules_follow_the_sensor_type(ses: FingerprintSession) -> None:
     _replan(ses, "mono", hdr=False)  # e.g. the TRI089S-M: core only
-    assert _rows(ses) == ["cap", "diffuser", "finish"]
+    assert _rows(ses) == ["cap", "diffuser", "lens", "finish"]
     assert ses.plan["diffuser"].measures == ("timing", "flat", "noise_gain")
     assert "colour" not in ses.plan["diffuser"].instruction
-    assert ses.plan["finish"].label == "3. Finish"
+    assert ses.plan["lens"].label == "3. Lens / iris" and ses.plan["lens"].can_skip
+    assert ses.plan["finish"].label == "4. Iris back: finish"
     assert ses.plan["finish"].checks == (
-        "OK to write test values to User Set 2 and restart the camera",
+        "Iris and light back as in the diffuser row",
+        "Lens / iris box says it",
+        "Diffuser still on the lens",
+        "OK to write test values to UserSet2 and restart the camera",
     )
 
     _replan(ses, "prism", hdr=False)  # e.g. the JAI: core + colour
-    assert _rows(ses) == ["cap", "diffuser", "finish"]
+    assert _rows(ses) == ["cap", "diffuser", "lens", "finish"]
     assert ses.plan["diffuser"].measures == ("timing", "flat", "colour", "noise_gain")
     assert "the colour planes" in ses.plan["diffuser"].instruction
 
     _replan(ses, "bayer", hdr=True)  # e.g. the TRI054S without a recipe: core + colour + HDR
-    assert _rows(ses) == ["cap", "diffuser", "light_2", "finish"]
+    assert _rows(ses) == ["cap", "diffuser", "light_2", "lens", "finish"]
     assert ses.plan["light_2"].measures == ("channels_a",)
-    assert ses.plan["finish"].label == "4. Iris back open: finish"
+    assert ses.plan["finish"].label == "5. Iris back: finish"
 
 
 def test_bayer_camera_measures_its_colour_planes(
@@ -124,6 +128,7 @@ def test_bayer_camera_measures_its_colour_planes(
     ses = FingerprintSession(svc, SIM, root=tmp_path / "fp", reset=False)
     cam = svc._open[SIM].camera
     cam.scene = "cap"  # type: ignore[attr-defined]
+    ses.set_lens("sim lens, f/2")
     cap = ses.run("cap", ses.plan["cap"].checks)
     assert cap.ok, cap.message
     assert ses.fmt == "BayerRG8" and "only 8-bit raw" in cap.message
@@ -135,6 +140,14 @@ def test_bayer_camera_measures_its_colour_planes(
     assert colour["green_imbalance_pct"] is not None
     assert len(colour["repeats"]["relative_to_green.R"]["values"]) == 3
     assert "colour planes: R/G" in dif.message
+    cam.iris_transmission = 0.25  # type: ignore[attr-defined]
+    ses.set_lens("sim lens, f/4")
+    lens = ses.run("lens", ses.plan["lens"].checks)
+    assert lens.ok, lens.message
+    shading = lens.data["lens_iris"]
+    assert set(shading["corner_ratio"]) == {"R", "Gr", "Gb", "B"}
+    assert shading["corner_colour_cast_pct"] < 2  # the sim shades every colour alike
+    assert "colour cast at the corners" in lens.message
 
 
 def test_row_variance_separates_banding_from_pixel_noise() -> None:

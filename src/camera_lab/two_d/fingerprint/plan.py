@@ -13,9 +13,12 @@ if TYPE_CHECKING:
     from camera_lab.two_d.profiles import FpChannelStage
 from camera_lab.two_d.fingerprint.base import SessionBase
 from camera_lab.two_d.fingerprint.common import (
+    BOOT_SLOT,
     CHANNEL_PREFIX,
     FP_SETUPS,
+    LENS_STOPS_CLOSED,
     LIGHT_SETUPS,
+    PERSIST_SLOT,
     REPEATS,
     STAGE_STEPS,
     FpSetup,
@@ -23,7 +26,7 @@ from camera_lab.two_d.fingerprint.common import (
     StepPlan,
 )
 
-PERSIST_CHECK = "OK to write test values to User Set 2 and restart the camera"
+PERSIST_CHECK = "OK to write test values to {slot} and restart the camera"
 
 
 class PlanMixin(SessionBase):
@@ -42,7 +45,10 @@ class PlanMixin(SessionBase):
             )
             lens_check = (f"Lens: {self.lens_label} on the camera",)
         else:
-            ref_light = ("Iris fully open", "Bench light on, written in the Lens / iris box")
+            ref_light = (
+                "Iris fully open, or as a STOP of this row asked (written in the Lens / iris box)",
+                "Bench light on, written in the Lens / iris box",
+            )
         at_ref: list[FpStep] = []
         others: list[tuple[FpStep, FpChannelStage]] = []
         if r is not None:
@@ -94,7 +100,7 @@ class PlanMixin(SessionBase):
                 ("timing", "flat", *colour, *at_ref, "noise_gain"),
             ),
         }
-        self._light_changes = bool(others) or (r is None and self.hdr_capable)
+        self._light_changes = True  # the lens row closes the iris (others / HDR discovery too)
         for n, setup in enumerate(LIGHT_SETUPS):
             if r is not None and n < len(others):
                 step, st = others[n]
@@ -129,20 +135,57 @@ class PlanMixin(SessionBase):
                 )
             else:
                 plan[setup] = StepPlan(setup, "Not used", "Not used for this camera.", active=False)
-        back = (*ref_light, "Diffuser still on the lens") if self._light_changes else ()
+        stops = LENS_STOPS_CLOSED
+        if r is not None:
+            f_lens = self._lens_row_f()
+            lens_how = (
+                f"Set the iris to f/{f_lens:g} ({stops} f-stops smaller than the diffuser row)."
+            )
+            lens_checks: tuple[str, ...] = (self._iris_text(f_lens), "Diffuser still on the lens")
+        else:
+            lens_how = (
+                f"Close the iris {stops} f-stops from the diffuser row (e.g. f/4 → f/8) and write "
+                "the new iris in the Lens / iris box."
+            )
+            lens_checks = (
+                f"Iris closed {stops} f-stops from the diffuser row",
+                "Lens / iris box says the new iris",
+                "Diffuser still on the lens",
+            )
+        plan["lens"] = StepPlan(
+            "lens",
+            "Lens / iris",
+            f"Keep the diffuser on. {lens_how} camera_lab checks the light fell about "
+            f"{2**stops}×, then measures vignetting and colour shading at this iris against the "
+            "diffuser row (prism cameras are rated for one aperture). Skip if the lens has no "
+            "iris.",
+            lens_checks,
+            ("lens_iris",),
+            can_skip=True,
+        )
+        info = self.service.user_set_info(self.camera_id)
+        slots = info.get("slots", [])
+        persist = (
+            PERSIST_SLOT if info.get("boot_set_feature") and PERSIST_SLOT in slots else BOOT_SLOT
+        )
+        persist_check = PERSIST_CHECK.format(slot=persist) + (
+            ""
+            if persist == PERSIST_SLOT
+            else f"; {BOOT_SLOT} is then refilled with factory Default"
+        )
+        back = (
+            ref_light
+            if r is not None
+            else ("Iris and light back as in the diffuser row", "Lens / iris box says it")
+        )
         plan["finish"] = StepPlan(
             "finish",
-            "Iris back open: finish" if self._light_changes else "Finish",
-            (
-                "Set the iris back fully open and the light to the reference; keep the diffuser "
-                "on. camera_lab checks the light matches the flat step, tests what survives a "
-                "restart (test values in User Set 2, camera reboots ≈ 30 s) and writes the "
-                "fingerprint. Remove the diffuser afterwards."
-            )
-            if self._light_changes
-            else "Run to test what survives a restart (test values in User Set 2, camera reboots "
-            "≈ 30 s) and write the fingerprint; then remove the diffuser.",
-            (*back, PERSIST_CHECK),
+            "Iris back: finish",
+            "Set the iris and the light back as in the diffuser row; keep the diffuser on. "
+            "camera_lab checks the light matches the flat step, tests what survives a restart "
+            f"(test values in {persist}, the camera reboots, ≈ 30 s) and writes the fingerprint. "
+            "Remove the diffuser afterwards.",
+            (*back, "Diffuser still on the lens", persist_check),
             ("light_back", "user_sets", "report"),
         )
         n = 0

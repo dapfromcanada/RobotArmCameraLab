@@ -24,9 +24,16 @@ Steps (each passes or stops and says what the human must do):
                     needs. Unused stages are skipped
 6. ``light_back`` — the bench back at the reference light (iris fully open), verified
                     against the light measured in the flat step
-7. ``noise_gain`` — temporal SNR per gain at constant output; gain-mode switches.
-                    Skipped where gain is not a knob of the design mode
-8. ``user_sets``  — what the camera's user sets offer (power-up is a human test)
+7. ``noise_gain`` — every camera with a gain control (also where the mode pins it):
+                    SNR and photon transfer (DN/e-, read noise, full well) per gain;
+                    gain-mode switches; prism cameras: the other gain mode at 0 dB
+   ``lens_iris``  — the lens row: iris closed 2 stops (light checked), vignetting and
+                    colour shading per plane against the diffuser row; skippable
+8. ``user_sets``  — what survives a restart: markers → a boot user set → reboot →
+                    kept / lost. Boot-set cameras use User Set 2; cameras without (JAI)
+                    User Set 1, refilled with factory Default afterwards
+
+Every row records the camera temperature and needs the Lens / iris text.
 9. ``report``     — ``fingerprint.yaml`` + ``report.md`` in a dated folder under
                     ``WS/config/camera_fingerprints/<serial>/``; the camera is
                     restored from the identity backup
@@ -99,6 +106,7 @@ from camera_lab.two_d.fingerprint.common import (
 )
 from camera_lab.two_d.fingerprint.core import CoreMeasurements
 from camera_lab.two_d.fingerprint.hdr import HdrMeasurements
+from camera_lab.two_d.fingerprint.lens import LensMeasurements
 from camera_lab.two_d.fingerprint.plan import PlanMixin
 from camera_lab.two_d.fingerprint.report import ReportMixin
 
@@ -148,7 +156,12 @@ __all__ = [
 
 
 class FingerprintSession(
-    PlanMixin, CoreMeasurements, ColourMeasurements, HdrMeasurements, ReportMixin
+    PlanMixin,
+    CoreMeasurements,
+    ColourMeasurements,
+    HdrMeasurements,
+    LensMeasurements,
+    ReportMixin,
 ):
     """One fingerprint of one open camera."""
 
@@ -170,6 +183,9 @@ class FingerprintSession(
         self.results = {}  # per measurement
         self.setup_results = {}
         self.durations = {}
+        self.temperatures = {}  # camera °C at the start of each row
+        self.gain_adjustable = False
+        self.mode_gain_db = 0.0
         self._light_changes = False
         self.backup_id = None
         self.fmt = ""
@@ -251,6 +267,7 @@ class FingerprintSession(
             "timing": self.step_timing,
             "light_back": self.step_light_back,
             "noise_gain": self.step_noise_gain,
+            "lens_iris": self.step_lens_iris,
             "user_sets": self.step_user_sets,
             "report": self.step_report,
         }
@@ -288,6 +305,14 @@ class FingerprintSession(
             return self._record_setup(
                 FpResult(step=setup, status="skipped", message=plan.instruction)
             )
+        if not self.lens.strip():
+            raise InvalidRequestError(
+                "write the lens and iris in the Lens / iris box first (it is recorded with "
+                "every row)"
+            )
+        temp = self._temperature()
+        if temp is not None:
+            self.temperatures[setup] = temp
         parts: list[FpResult] = []
         durations: dict[str, float] = {}
         for m in plan.measures:
@@ -304,6 +329,8 @@ class FingerprintSession(
         self.durations.setdefault(setup, {}).update(durations)
         data: dict[str, Any] = {p.step: p.data for p in parts}
         data["durations_s"] = dict(self.durations[setup])
+        if temp is not None:
+            data["temperature_c"] = temp
         failed = [p for p in parts if not p.ok]
         if failed:
             f = failed[0]

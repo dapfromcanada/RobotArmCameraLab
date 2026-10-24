@@ -30,15 +30,16 @@ FpStep = Literal[
     "channels_d",
     "light_back",
     "noise_gain",
+    "lens_iris",
     "user_sets",
     "report",
 ]
 STAGE_STEPS: tuple[FpStep, ...] = ("channels_a", "channels_b", "channels_c", "channels_d")
 #: What the human sets up (Derek 2026-10-22: one test per bench state): each setup is one
 #: row with one checklist and one Run, and makes several measurements (FpStep).
-FpSetup = Literal["cap", "diffuser", "light_2", "light_3", "light_4", "finish"]
+FpSetup = Literal["cap", "diffuser", "light_2", "light_3", "light_4", "lens", "finish"]
 LIGHT_SETUPS: tuple[FpSetup, ...] = ("light_2", "light_3", "light_4")
-FP_SETUPS: tuple[FpSetup, ...] = ("cap", "diffuser", *LIGHT_SETUPS, "finish")
+FP_SETUPS: tuple[FpSetup, ...] = ("cap", "diffuser", *LIGHT_SETUPS, "lens", "finish")
 MEASURE_LABELS: dict[FpStep, str] = {
     "identity": "identity",
     "timing": "timing",
@@ -51,6 +52,7 @@ MEASURE_LABELS: dict[FpStep, str] = {
     "channels_d": "HDR",
     "light_back": "light back",
     "noise_gain": "noise vs gain",
+    "lens_iris": "lens / iris",
     "user_sets": "user sets",
     "report": "report",
 }
@@ -69,6 +71,12 @@ COLOUR_FRAMES = 6
 PIPELINE_FRAMES = 8  # frames timed for the receive interval
 #: The user-set persistence test writes its marker values here (a scratch slot).
 PERSIST_SLOT = "UserSet2"
+#: Cameras without a boot-set feature boot from this slot once anything was saved (JAI,
+#: power-cycle test 2026-10-21): the test uses it and then refills it with the factory
+#: Default settings, so the camera boots as from Default.
+BOOT_SLOT = "UserSet1"
+#: The lens row closes the iris this many f-stops from the diffuser row.
+LENS_STOPS_CLOSED = 2
 #: Lit measurements use exposures of at least this (bench file `min_exposure_us` overrides):
 #: bench LEDs ripple (~4 kHz on the "DC" floods, 120 Hz on the dimmed panels) and a short
 #: rolling-shutter exposure turns that into row bands (measured 2026-10-23).
@@ -96,6 +104,7 @@ FP_STEPS: tuple[FpStep, ...] = (
     *STAGE_STEPS,
     "light_back",
     "noise_gain",
+    "lens_iris",
     "user_sets",
     "report",
 )

@@ -44,6 +44,9 @@ class ColourMeasurements(SessionBase):
             "prnu_pct": {k: p.prnu_pct for k, p in planes.items()},
             "snr": {k: p.snr for k, p in planes.items()},
             "green_imbalance_pct": res.green_imbalance_pct,
+            "corner_ratio": {k: p.corner_ratio for k, p in planes.items()},
+            "corner_colour_cast_pct": res.corner_colour_cast_pct,
+            "lens": self.lens,
         }
         rel = ", ".join(
             f"{k}/G {p.relative_to_green:.2f}" for k, p in planes.items() if not k.startswith("G")

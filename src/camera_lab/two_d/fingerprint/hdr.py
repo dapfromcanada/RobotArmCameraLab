@@ -20,7 +20,6 @@ from camera_lab.two_d.fingerprint.common import (
     FLAT_TARGET,
     LIGHT_BACK_TOLERANCE,
     LIGHT_TOLERANCE,
-    PROBE_FRACTION,
     REPEATS,
     STAGE_STEPS,
     SWEEP_LOW_FACTOR,
@@ -33,43 +32,6 @@ from camera_lab.two_d.fingerprint.common import (
 
 class HdrMeasurements(SessionBase):
     """The HDR module."""
-
-    def _light_rate(self, expected: float) -> float:
-        """Signal per µs above black on the camera's own output (linear) at the light now.
-
-        Starts at the exposure the expected light needs for ~30 % and steps by 8× if the
-        frame is clipped or nearly black.
-        """
-        if self.hdr_channels:
-            self._output("HDR", self.fmt)
-        e_lo, e_hi = self._lit_range()
-        span = self.full_scale - self.black_dn
-        exp = min(e_hi, max(e_lo, PROBE_FRACTION * span / max(self._ref_rate * expected, 1e-12)))
-        m = 0.0
-        for _ in range(6):
-            self._set(exposure_us=exp)
-            m = float(np.mean(fm.centre(self._plane()))) - self.black_dn
-            if m >= 0.9 * span and exp > e_lo:
-                exp = max(e_lo, exp / 8)
-            elif m < 0.02 * span and exp < e_hi:
-                exp = min(e_hi, exp * 8)
-            else:
-                break
-        return max(m, 0.0) / exp
-
-    def _check_light(
-        self, expected: float, tolerance: float, what: str
-    ) -> tuple[float, str | None]:
-        """(measured / expected light, a STOP message or None)."""
-        rate = self._light_rate(expected)
-        ratio = rate / max(self._ref_rate * expected, 1e-12)
-        if 1 / tolerance <= ratio <= tolerance:
-            return ratio, None
-        if ratio <= 0:
-            how = "no light reaches the camera"
-        else:
-            how = f"the light is {ratio:.2f}× what {what} should give"
-        return ratio, f"{how}: check the dimmer and the iris, then Retry"
 
     def _measure_channel(self, out: str, e_lo: float, e_hi: float) -> str | None:
         """Photon transfer of one HDR channel REPEATS times; a problem text or None."""
@@ -227,7 +189,9 @@ class HdrMeasurements(SessionBase):
     def step_light_back(self) -> FpResult:
         """The bench is back at the reference light (iris fully open): verified."""
         self._require("flat", *(m for m in self._planned() if m in STAGE_STEPS))
-        if not self._light_changes or not self._channels:
+        lens = self.results.get("lens_iris")
+        moved = bool(self._channels) or (lens is not None and lens.status == "pass")
+        if not self._light_changes or not moved:
             return self._record(
                 FpResult(step="light_back", status="skipped", message="the light never changed")
             )

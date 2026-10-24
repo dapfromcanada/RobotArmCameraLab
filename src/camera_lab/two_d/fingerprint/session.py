@@ -41,10 +41,11 @@ there.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from camera_lab.two_d.errors import InvalidRequestError
 from camera_lab.two_d.fingerprint.bench import load_bench
@@ -167,7 +168,8 @@ class FingerprintSession(
         self.actor = actor
         self.root = root
         self.results = {}  # per measurement
-        self.setup_results = {}  # per setup (the rows)
+        self.setup_results = {}
+        self.durations = {}
         self._light_changes = False
         self.backup_id = None
         self.fmt = ""
@@ -287,13 +289,18 @@ class FingerprintSession(
                 FpResult(step=setup, status="skipped", message=plan.instruction)
             )
         parts: list[FpResult] = []
+        durations: dict[str, float] = {}
         for m in plan.measures:
             prev = self.results.get(m)
+            t0 = time.monotonic()
             res = prev if prev is not None and prev.ok else self._measure(m)
+            durations[m] = round(time.monotonic() - t0, 1)
             parts.append(res)
             if not res.ok:
                 break
-        data = {p.step: p.data for p in parts}
+        self.durations.setdefault(setup, {}).update(durations)
+        data: dict[str, Any] = {p.step: p.data for p in parts}
+        data["durations_s"] = durations
         failed = [p for p in parts if not p.ok]
         if failed:
             f = failed[0]

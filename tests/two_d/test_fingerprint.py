@@ -480,7 +480,9 @@ def test_setups_run_each_bench_state_once(svc: TwoDService, tmp_path: Path) -> N
     _scene(svc, "cap")
     cap = ses.run("cap", ses.plan["cap"].checks)
     assert cap.status == "pass", cap.message
-    assert set(cap.data) == {"identity", "dark"}
+    assert set(cap.data) == {"identity", "dark", "durations_s"}
+    assert set(cap.data["durations_s"]) == {"identity", "dark"}
+    assert ses.durations["cap"] == cap.data["durations_s"]
     reps = cap.data["dark"]["repeats"]
     assert len(reps["black_dn"]["values"]) == 3 and reps["black_dn"]["spread_pct"] < 1
     assert "3 runs agree within" in cap.message
@@ -489,6 +491,9 @@ def test_setups_run_each_bench_state_once(svc: TwoDService, tmp_path: Path) -> N
     dif = ses.run("diffuser", ses.plan["diffuser"].checks)
     assert dif.status == "pass", dif.message
     assert len(dif.data["flat"]["repeats"]["flat.prnu_pct"]["values"]) == 3
+    pipe = dif.data["timing"]["pipeline"]
+    assert pipe["frame_interval_ms"] > 0 and pipe["process_ms"] > 0 and "CPUs" in pipe["pc"]
+    assert set(dif.data["durations_s"]) == {"timing", "flat", "colour", "noise_gain"}
     with pytest.raises(InvalidRequestError, match="cannot be skipped"):
         ses.skip("diffuser", "no")
     assert ses.run("light_2", ses.plan["light_2"].checks).status == "skipped"  # no channels
@@ -496,6 +501,8 @@ def test_setups_run_each_bench_state_once(svc: TwoDService, tmp_path: Path) -> N
     assert fin.status == "pass", fin.message
     assert ses.next_step() is None
     doc = yaml.safe_load((Path(fin.data["report"]["folder"]) / "fingerprint.yaml").read_text())
+    md = (Path(fin.data["report"]["folder"]) / "report.md").read_text()
+    assert "| cap | identity" in md and "**all**" in md and "Image pipeline (" in md
     assert doc["setups"]["cap"]["status"] == "pass"
     assert doc["dark"]["repeats"]["read_noise_dn"]["median"] > 0
 

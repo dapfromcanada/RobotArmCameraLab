@@ -204,6 +204,9 @@ class MainWindow(QMainWindow):
 
         self.camera_list_panel.rescan_requested.connect(self._on_camera_list_panel_rescan_requested)
         self.camera_list_panel.camera_selected.connect(self._on_camera_list_panel_camera_selected)
+        self.camera_list_panel.disconnect_requested.connect(
+            self._on_camera_list_panel_disconnect_requested
+        )
         self.camera_settings_panel.patch_requested.connect(
             self._on_camera_settings_panel_patch_requested
         )
@@ -293,6 +296,9 @@ class MainWindow(QMainWindow):
         self.apply_preset_action.setEnabled(has_camera)
         self.setup_action.setEnabled(has_camera and idle)
         self.fingerprint_action.setEnabled(has_camera and idle)
+        self.camera_list_panel.set_disconnect_enabled(
+            has_camera and idle and self._setup_window is None and self._fingerprint_window is None
+        )
         if not has_camera:
             state = "no camera"
         elif self._busy_jobs:
@@ -488,6 +494,10 @@ class MainWindow(QMainWindow):
     def _on_camera_list_panel_rescan_requested(self) -> None:
         self._submit("discover")
 
+    def _on_camera_list_panel_disconnect_requested(self) -> None:
+        if self._camera_id is not None:
+            self._submit("close")
+
     def _on_camera_list_panel_camera_selected(self, serial: str) -> None:
         if serial != self._camera_id:
             self._submit("open", camera_id=serial)
@@ -548,9 +558,11 @@ class MainWindow(QMainWindow):
         window.finished.connect(self._on_setup_window_finished)
         self._setup_window = window
         window.show()
+        self._refresh_ui_state()
 
     def _on_setup_window_finished(self, _result: int) -> None:
         self._setup_window = None
+        self._refresh_ui_state()
 
     def _on_fingerprint_action_triggered(self) -> None:
         if self._fingerprint_window is not None:
@@ -561,9 +573,11 @@ class MainWindow(QMainWindow):
         window.finished.connect(self._on_fingerprint_window_finished)
         self._fingerprint_window = window
         window.show()
+        self._refresh_ui_state()
 
     def _on_fingerprint_window_finished(self, _result: int) -> None:
         self._fingerprint_window = None
+        self._refresh_ui_state()
 
     # ------------------------------------------------------------ closing
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt override

@@ -14,9 +14,29 @@ characteristics:
     - "Per-sensor exposure (ExposureTimeMode Individual) can balance colour without gain noise."
     - "RGB12V1Packed bypasses gamma and white balance in the camera."
 
-default_mode: prism
+default_mode: raw
 
 modes:
+  raw:
+    strategy: linear
+    description: >
+      The camera's design mode for measurement and detection (Derek 2026-10-24): 12-bit raw
+      per sensor (RGB12V1Packed: gamma and white balance are bypassed in the camera — the gamma
+      LUT is not even writable in this format, 2026-10-24), gain
+      0 dB, white balance 1/1/1, one common exposure for the three sensors. Exposure is the
+      only knob; colour is balanced on the PC. Fingerprint, verify, site tool and tune use it.
+    settings:
+      pixel_format: RGB12V1Packed
+      gain_db: 0
+      white_balance: {red: 1.0, green: 1.0, blue: 1.0}
+      advanced:
+        prism.exposure_mode: common
+        prism.gain_mode: master
+    knobs: [exposure_us]
+    scoring:
+      level_metric: p99        # one brightness rule for linear raw data: highlights at 80 %
+      target_mean: 0.80
+      clip_max_pct: 0.2
   prism:
     strategy: prism
     description: >

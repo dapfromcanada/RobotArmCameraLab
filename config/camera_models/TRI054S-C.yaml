@@ -66,7 +66,7 @@ timing:
   fps_full_frame: {Mono8: 20.8, BayerRG8: 20.8, Mono12p: 13.9, BayerRG12p: 13.9, Mono16: 10.4, BayerRG16: 10.4, RGB8: 6.93, Mono24: 6.93, BayerRG24: 6.93, RGB12p: 4.62, RGB16: 3.46}   # GigE bandwidth
   exposure_to_fps: {61000: 16, 122000: 8, 244000: 4}
   triggered_max_rate_factor: 0.5
-  trigger_to_image_ms: null
+  trigger_to_image_ms: null          # measured on the machine with the production trigger (PTP for exposure start)
   settle_frame_periods: 2
   row_time_us: 23.5                   # rolling shutter, from 120 Hz flicker bands
   full_frame_readout_ms: 44

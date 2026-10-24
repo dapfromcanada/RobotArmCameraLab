@@ -4,7 +4,10 @@ darks, flat field, noise vs gain, user sets."""
 from __future__ import annotations
 
 import math
+import os
+import platform
 import statistics
+import time
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -28,16 +31,19 @@ from camera_lab.two_d.fingerprint.common import (
     FLAT_SWEEP,
     FLAT_TARGET,
     GAIN_SWITCH_GAIN,
+    MAX_EXPOSURE_US,
     NOISE_GAIN_STEP_DB,
     NOISE_PAIRS,
     NOISE_TARGET,
     PERSIST_SLOT,
+    PIPELINE_FRAMES,
     SETTLE_FRAMES,
     SWEEP_LOW_FACTOR,
     FpResult,
     format_family,
     iris_hint,
 )
+from camera_lab.two_d.processing import demosaic, to_float01
 
 
 class CoreMeasurements(SessionBase):
@@ -153,6 +159,28 @@ class CoreMeasurements(SessionBase):
             )
         )
 
+    def _pipeline_timing(self, frames: int = PIPELINE_FRAMES) -> dict[str, Any]:
+        """In the design format: the interval between received frames (the camera's real
+        throughput, unpacking included) and this PC's processing to a usable image
+        (debayer for Bayer, conversion to float) — production throughput numbers."""
+        f = self.service.grab(self.camera_id, int(MAX_EXPOSURE_US / 1000) + 5000)
+        t0 = time.perf_counter()
+        for _ in range(frames):
+            f = self.service.grab(self.camera_id, int(MAX_EXPOSURE_US / 1000) + 5000)
+        interval = (time.perf_counter() - t0) / frames
+        t1 = time.perf_counter()
+        for _ in range(3):
+            to_float01(demosaic(f.data, f.pixel_format), f.bit_depth)
+        process = (time.perf_counter() - t1) / 3
+        return {
+            "pixel_format": f.pixel_format,
+            "exposure_us": float(self._settings().exposure_us),
+            "frame_interval_ms": interval * 1000,
+            "process_ms": process * 1000,
+            "frame_mb": f.data.nbytes / 1e6,
+            "pc": f"{platform.processor() or platform.machine()}, {os.cpu_count()} CPUs",
+        }
+
     def step_timing(self) -> FpResult:
         self._require("identity")
         view = self.service.get_settings(self.camera_id)
@@ -170,10 +198,12 @@ class CoreMeasurements(SessionBase):
         self._set(exposure_us=exp)
         change = means[-1] - m0
         stale = sum(1 for m in means if abs(change) > 0 and (m - m0) / change < 0.5)
+        pipe = self._pipeline_timing()
         data = {
             "fps_full_frame": fps,
             "stale_frames_after_change": stale,
             "settle_test_level_change_dn": change,
+            "pipeline": pipe,
         }
         note = "" if abs(change) > 0.02 * self.full_scale else " (scene too dark to test settling)"
         return self._record(
@@ -181,7 +211,8 @@ class CoreMeasurements(SessionBase):
                 step="timing",
                 status="pass",
                 message=f"fps per format recorded; {stale} stale frame(s) after an exposure "
-                f"change{note}",
+                f"change{note}; {self.fmt}: a frame every {pipe['frame_interval_ms']:.0f} ms, "
+                f"{pipe['process_ms']:.0f} ms on this PC to a usable image",
                 data=data,
             )
         )

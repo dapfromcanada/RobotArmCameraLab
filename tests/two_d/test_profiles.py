@@ -304,7 +304,8 @@ def test_cli_profile_show_and_mode_set() -> None:
     res = _cli("two-d", "profile", "show", "triton")
     assert res.exit_code == 0 and "rolling" in res.stdout and "*raw_hdr" in res.stdout
     data = json.loads(_cli("two-d", "profile", "show", "apex", "--json").stdout)["result"]
-    assert data["default_mode"] == "prism"
+    assert data["default_mode"] == "raw"
+    assert data["modes"]["raw"]["settings"]["pixel_format"] == "RGB12V1Packed"
     res = _cli("--sim", "two-d", "mode", "set", "SIM-0001", "hdr", "--json")
     assert res.exit_code == 0
     assert json.loads(res.stdout)["result"]["settings"]["advanced"]["hdr.enabled"] == "on"

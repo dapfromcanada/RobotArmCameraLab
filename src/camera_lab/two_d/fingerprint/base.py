@@ -37,6 +37,7 @@ class SessionBase:
     root: Path | None
     results: dict[FpStep, FpResult]  # per measurement
     setup_results: dict[FpSetup, FpResult]  # per setup (the rows)
+    durations: dict[str, dict[str, float]]  # seconds per setup → measurement
     plan: dict[FpSetup, StepPlan]
     backup_id: str | None
     fmt: str

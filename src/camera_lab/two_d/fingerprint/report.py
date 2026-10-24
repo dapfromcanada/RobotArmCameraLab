@@ -113,6 +113,28 @@ class ReportMixin(SessionBase):
             imb = colour.data.get("green_imbalance_pct")
             if imb is not None:
                 lines.append(f"\nBayer green imbalance (Gr − Gb): {imb:+.2f} %")
+        if self.durations:
+            lines += ["", "| setup | measurements (seconds) | total |", "|---|---|---|"]
+            total = 0.0
+            for setup, ms in self.durations.items():
+                t = sum(ms.values())
+                total += t
+                lines.append(
+                    f"| {setup} | "
+                    + ", ".join(f"{k} {v:g}" for k, v in ms.items())
+                    + f" | {t:.0f} s |"
+                )
+            lines.append(f"| **all** | | **{total / 60:.1f} min** |")
+        pipe = self.results.get("timing")
+        if pipe is not None and "pipeline" in pipe.data:
+            pp = pipe.data["pipeline"]
+            lines += [
+                "",
+                f"Image pipeline ({pp['pixel_format']}, {pp['frame_mb']:.1f} MB/frame, "
+                f"{pp['exposure_us'] / 1000:.1f} ms exposure): a frame every "
+                f"{pp['frame_interval_ms']:.0f} ms; {pp['process_ms']:.0f} ms on {pp['pc']} to a "
+                "usable image (debayer / float).",
+            ]
         chans = self._channels
         if chans:
             lines += [

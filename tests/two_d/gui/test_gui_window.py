@@ -392,3 +392,19 @@ def test_heartbeat_detects_a_stall(qtbot: QtBot) -> None:
 def test_unknown_job_is_reported(qtbot: QtBot, window: MainWindow) -> None:
     window.job_requested.emit("no_such_job", {})
     qtbot.waitUntil(lambda: "unknown job" in window.warning_label.text(), timeout=WAIT_MS)
+
+
+def test_disconnect_releases_the_camera(qtbot: QtBot, window: MainWindow) -> None:
+    button = window.camera_list_panel.disconnect_button
+    assert button.text() == "Disconnect" and not button.isEnabled()  # nothing open
+    open_sim(qtbot, window)
+    qtbot.waitUntil(button.isEnabled, timeout=WAIT_MS)
+    window._on_fingerprint_action_triggered()
+    assert not button.isEnabled()  # not while a fingerprint window is open
+    window._close_fingerprint_window()
+    qtbot.waitUntil(button.isEnabled, timeout=WAIT_MS)
+    button.click()
+    qtbot.waitUntil(lambda: window.camera_id is None, timeout=WAIT_MS)
+    assert window.state_label.text() == "no camera" and not button.isEnabled()
+    lock = CameraLock(SIM, "other").acquire()  # the GUI let go of the camera
+    lock.release()

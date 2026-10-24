@@ -170,7 +170,7 @@ transformation off: keep it at 1.0 and balance colour on the PC. [measured 2026-
 | shutter | rolling: rows are exposed one after another over one readout (≈ one frame period) | [manual] |
 | row (line) time | ≈ 23.5 µs per sensor row → ≈ 44 ms to read a full frame top to bottom | [measured 2026-10-23, from 120 Hz flicker bands] |
 | triggered acquisition | max trigger rate ≈ half the free-run rate (a reset frame per trigger) | [manual] |
-| trigger-to-image delay | **[to measure]** | |
+| trigger-to-image delay | measured **on the machine** with the production trigger (software or a robot-controller line); exact exposure start needs PTP time sync. Bench estimate: exposure + ≈ 44 ms readout + transfer (≈ 145 ms for a 16 MB BayerRG24 frame over GigE) | [to measure on site] |
 | new settings visible after | 2 frame periods (camera_lab waits for them: 0 stale frames) | [measured 2026-10-22] |
 
 ## 6. Measured performance (linear 24-bit output, Gain 0 dB, BlackLevel 1)

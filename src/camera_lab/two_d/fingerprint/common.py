@@ -66,6 +66,7 @@ FLAT_REPEAT_KEYS = (
     "photon_transfer.full_well_e",
 )
 COLOUR_FRAMES = 6
+PIPELINE_FRAMES = 8  # frames timed for the receive interval
 #: The user-set persistence test writes its marker values here (a scratch slot).
 PERSIST_SLOT = "UserSet2"
 #: Lit measurements use exposures of at least this (bench file `min_exposure_us` overrides):

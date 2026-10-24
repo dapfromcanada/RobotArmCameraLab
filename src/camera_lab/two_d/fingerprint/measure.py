@@ -144,14 +144,16 @@ def dark_point(frames: Sequence[Array], gain_db: float, exposure_us: float) -> D
     )
 
 
-def hot_pixels(mean_dark: Array) -> tuple[tuple[int, int], ...]:
-    """Robust outliers (median + HOT_SIGMA × 1.4826 × MAD) of an averaged dark."""
+def hot_pixels(mean_dark: Array) -> tuple[tuple[tuple[int, int], ...], int]:
+    """Robust outliers (median + HOT_SIGMA × 1.4826 × MAD) of an averaged dark: the
+    ``MAX_HOT_PIXELS`` hottest (row, col) and the true count (JAI 2026-10-24: 3504, the list
+    cap of 1000 had been reported as the count)."""
     med = float(np.median(mean_dark))
     mad = float(np.median(np.abs(mean_dark - med))) * 1.4826
     thresh = med + HOT_SIGMA * max(mad, 0.5)
     rows, cols = np.nonzero(mean_dark > thresh)
     order = np.argsort(-mean_dark[rows, cols])[:MAX_HOT_PIXELS]
-    return tuple((int(rows[i]), int(cols[i])) for i in order)
+    return tuple((int(rows[i]), int(cols[i])) for i in order), int(rows.size)
 
 
 def dark_result(
@@ -165,14 +167,14 @@ def dark_result(
         slope = float(np.polyfit(x, y, 1)[0])
     else:
         slope = 0.0
-    hot = hot_pixels(long_mean_dark)
+    hot, total = hot_pixels(long_mean_dark)
     return DarkResult(
         points=tuple(points),
         black_dn=base[0].black_dn,
         read_noise_dn=base[0].read_noise_dn,
         dark_current_dn_s=max(slope, 0.0),
         hot_pixels=hot,
-        hot_pixel_count=hot_total if hot_total is not None else len(hot),
+        hot_pixel_count=hot_total if hot_total is not None else total,
     )
 
 
@@ -208,8 +210,12 @@ class PtcResult(_Frozen):
     fit_points: int
 
 
-def photon_transfer(points: Sequence[PtcPoint], black_dn: float) -> PtcResult:
-    """Fit the photon transfer curve of a flat-field exposure sweep."""
+def photon_transfer(
+    points: Sequence[PtcPoint], black_dn: float, dark_read_noise_dn: float | None = None
+) -> PtcResult:
+    """Fit the photon transfer curve of a flat-field exposure sweep. The read noise in e- comes
+    from the darks when given (EMVA 1288): the fit's intercept is too small to trust and
+    came out negative on the JAI (2026-10-24: reported 0.0 e-)."""
     pts = sorted(points, key=lambda p: p.exposure_us)
     saturation = max(p.mean_dn for p in pts)
     span = max(saturation - black_dn, 1e-9)
@@ -229,7 +235,16 @@ def photon_transfer(points: Sequence[PtcPoint], black_dn: float) -> PtcResult:
         black_dn=black_dn,
         saturation_dn=saturation,
         system_gain_dn_per_e=k,
-        read_noise_e=math.sqrt(max(float(c), 0.0)) / k if k > 0 else float("nan"),
+        read_noise_e=(
+            (
+                dark_read_noise_dn
+                if dark_read_noise_dn is not None
+                else math.sqrt(max(float(c), 0.0))
+            )
+            / k
+            if k > 0
+            else float("nan")
+        ),
         full_well_e=span / k if k > 0 else float("nan"),
         fit_r2=r2,
         linearity_error_pct=lin_err,

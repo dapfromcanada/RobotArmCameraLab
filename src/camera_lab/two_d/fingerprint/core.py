@@ -38,6 +38,8 @@ from camera_lab.two_d.fingerprint.common import (
     PERSIST_SLOT,
     PIPELINE_FRAMES,
     SETTLE_FRAMES,
+    SETTLE_MAX_HALVINGS,
+    SETTLE_MAX_LEVEL,
     SWEEP_LOW_FACTOR,
     FpResult,
     format_family,
@@ -190,12 +192,20 @@ class CoreMeasurements(SessionBase):
             fps[fmt] = self._settings().frame_rate_hz
         self._set(pixel_format=self.fmt)
         lo, hi = self._range("exposure_us")
-        exp = float(self._settings().exposure_us)
+        start_exp = exp = float(self._settings().exposure_us)
         m0 = float(np.mean(self._plane()))
+        for _ in range(SETTLE_MAX_HALVINGS):  # a saturated start shows no change (JAI 2026-10-24)
+            if m0 < SETTLE_MAX_LEVEL * self.full_scale or exp / 2 < lo:
+                break
+            exp /= 2
+            self._set(exposure_us=exp)
+            for _ in range(2):  # past the stale frame(s)
+                self._plane()
+            m0 = float(np.mean(self._plane()))
         new = min(exp * 2, hi) if exp * 2 <= hi else max(exp / 2, lo)
         self._set(exposure_us=new)
         means = [float(np.mean(self._plane())) for _ in range(SETTLE_FRAMES)]
-        self._set(exposure_us=exp)
+        self._set(exposure_us=start_exp)
         change = means[-1] - m0
         stale = sum(1 for m in means if abs(change) > 0 and (m - m0) / change < 0.5)
         pipe = self._pipeline_timing()
@@ -205,7 +215,11 @@ class CoreMeasurements(SessionBase):
             "settle_test_level_change_dn": change,
             "pipeline": pipe,
         }
-        note = "" if abs(change) > 0.02 * self.full_scale else " (scene too dark to test settling)"
+        note = (
+            ""
+            if abs(change) > 0.02 * self.full_scale
+            else " (scene too dark or saturated to test settling)"
+        )
         return self._record(
             FpResult(
                 step="timing",
@@ -338,7 +352,9 @@ class CoreMeasurements(SessionBase):
         ptc = None
         if not self.hdr_channels:  # merged HDR data: no photon transfer (EMVA 1288 per channel)
             try:
-                ptc = fm.photon_transfer(points, self.black_dn)
+                dark = self.results.get("dark")
+                rn = dark.data.get("read_noise_dn") if dark is not None else None
+                ptc = fm.photon_transfer(points, self.black_dn, rn)
             except ValueError as exc:
                 return self._record(FpResult(step="flat", status="fail", message=str(exc)))
         clipped = resp.saturation_dn >= 0.97 * self.full_scale

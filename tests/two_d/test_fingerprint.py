@@ -262,6 +262,23 @@ def test_response_is_linear_without_photon_transfer() -> None:
     assert all(s < 0.97 * 16_777_215 for s, _ in r.snr)
 
 
+def test_hot_pixel_count_is_not_the_list_cap() -> None:
+    dark = np.full((100, 100), 100.0)
+    dark.flat[: fm.MAX_HOT_PIXELS + 500] = 500.0
+    hot, total = fm.hot_pixels(dark)
+    assert len(hot) == fm.MAX_HOT_PIXELS and total == fm.MAX_HOT_PIXELS + 500
+
+
+def test_photon_transfer_read_noise_comes_from_the_darks() -> None:
+    k = 0.9
+    pts = [  # shot noise only: the fit's intercept is 0
+        fm.PtcPoint(exposure_us=e, mean_dn=100 + 40 * e, var_dn2=k * 40 * e)
+        for e in range(1, 100, 5)
+    ]
+    assert fm.photon_transfer(pts, 100).read_noise_e == pytest.approx(0, abs=1e-3)
+    assert fm.photon_transfer(pts, 100, 1.8).read_noise_e == pytest.approx(2.0)
+
+
 def test_channel_too_dark_says_how_much_more_light(
     tmp_roots: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -292,15 +292,18 @@ class FingerprintSession(
         durations: dict[str, float] = {}
         for m in plan.measures:
             prev = self.results.get(m)
-            t0 = time.monotonic()
-            res = prev if prev is not None and prev.ok else self._measure(m)
-            durations[m] = round(time.monotonic() - t0, 1)
+            if prev is not None and prev.ok:  # kept from an earlier try: keep its time too
+                res = prev
+            else:
+                t0 = time.monotonic()
+                res = self._measure(m)
+                durations[m] = round(time.monotonic() - t0, 1)
             parts.append(res)
             if not res.ok:
                 break
         self.durations.setdefault(setup, {}).update(durations)
         data: dict[str, Any] = {p.step: p.data for p in parts}
-        data["durations_s"] = durations
+        data["durations_s"] = dict(self.durations[setup])
         failed = [p for p in parts if not p.ok]
         if failed:
             f = failed[0]

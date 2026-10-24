@@ -131,6 +131,8 @@ NOISE_PAIRS = 3
 GAIN_SWITCH_GAIN = 1.05  # SNR up by > 5 % for more gain → a gain-mode switch
 MAX_EXPOSURE_US = 2_000_000.0
 SETTLE_FRAMES = 3
+SETTLE_MAX_LEVEL = 0.9  # of full scale: above, halve the exposure before the settle test
+SETTLE_MAX_HALVINGS = 6
 #: Black level for the fingerprint where the camera offers ``black.level`` and sits below
 #: it (TRI054S-C: 0 by default, so dark noise is clipped at 0). In the camera's unit
 #: (Lucid: % of full scale, live range 0–12.5); restored with the backup at the end.

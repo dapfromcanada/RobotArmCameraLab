@@ -543,8 +543,15 @@ class SetupSession:
         )
 
     # ---------------------------------------------------------------- save
-    def save(self, confirm: bool, preset_name: str | None = None) -> StepResult:
-        """Write User Set 1 (boot set) + preset + report. Needs the human's confirmation."""
+    def save(
+        self, confirm: bool, preset_name: str | None = None, *, on_site: bool = False
+    ) -> StepResult:
+        """Write User Set 1 + preset + report. Needs the human's confirmation.
+
+        ``on_site``: the camera is installed where it will be used — also make User Set 1 the
+        boot set, so a power blip brings it back configured. In the lab it keeps booting from
+        factory Default (Derek 2026-10-24).
+        """
         self._require(
             "backup", "light", "brightness", "focus", "brightness_recheck", "white_balance"
         )
@@ -560,7 +567,7 @@ class SetupSession:
                 self.camera_id, 1, run.run_id, "camera setup result", self.actor
             )
             user_set = self.service.save_user_set(
-                self.camera_id, "UserSet1", confirm=True, actor=self.actor
+                self.camera_id, "UserSet1", confirm=True, make_default=on_site, actor=self.actor
             )
         except TwoDError as exc:  # keep the camera's exact answer in the run and report
             res = self._record(

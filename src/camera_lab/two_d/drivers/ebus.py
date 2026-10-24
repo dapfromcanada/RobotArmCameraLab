@@ -511,6 +511,18 @@ class EbusCamera(Camera2D):
                 )
             return {"slot": slot, "default": None, "stored_features": None, "notes": notes}
 
+    def reboot(self) -> None:
+        """DeviceReset, where the camera has it (the JAI reports no uptime: the service
+        verifies the restart by the reconnect only)."""
+        with self._lock:
+            if self._param("DeviceReset") is None:
+                raise NotImplementedError("this camera has no DeviceReset")
+            with contextlib.suppress(Exception):
+                if self._streaming:
+                    self.stop_stream()
+            with contextlib.suppress(Exception):
+                self._param("DeviceReset").Execute()
+
     def load_user_set(self, slot: str = "Default") -> dict[str, Any]:
         """UserSetSelector = slot → UserSetLoad (stream stopped), then the open-time setup.
         The JAI has no UserSetDefault: it boots from User Set 1 (power-cycle test

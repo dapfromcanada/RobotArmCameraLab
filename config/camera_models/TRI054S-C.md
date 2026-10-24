@@ -1,4 +1,4 @@
-# Lucid Triton TRI054S-C — camera white paper (DRAFT v12, 2026-10-24: fingerprint 20261024T084539Z, 3 runs per measurement)
+# Lucid Triton TRI054S-C — camera white paper (DRAFT v14, 2026-10-24: fingerprint 20261024T084539Z, 3 runs per measurement)
 
 What this camera is, how it works, how it behaves and how well it performs, measured on the
 camera_lab bench. Machine-readable twin: `TRI054S-C.yaml`.
@@ -26,7 +26,9 @@ linear raw data needs that table switched off. [manual], [measured 2026-10-22]
    settings in place, gain 0 dB, linear (× 2.00 per exposure doubling), no dark pixel at 0,
    finest shadow step 1 DN.
 3. **Judge the light:** `two-d assess-light` (MCP `assess_site_light`): flicker, enough light,
-   SNR against §6, clipping, distribution, light stability — each with an action.
+   SNR against §6, clipping, scene structure, distribution, light stability — each with an
+   action. It resets the camera itself, measures, then **puts the camera back as it was**;
+   `--apply` leaves it in the design mode at the recommended exposure.
 4. **Set the exposure:** `two-d tune <camera> --mode raw_hdr` (exposure is the only knob;
    gain and white balance are never touched in this mode), or the exposure assess-light
    recommends.
@@ -46,6 +48,12 @@ capture scores (`level_metric: p99`), the site tool and this paper all use this 
 camera runs at most 6.93 fps (GigE bandwidth) → one frame ≈ 144 ms; longer exposures lower the
 frame rate (camera_lab raises it back as the exposure shortens). 8-bit modes: 20.8 fps ≈ 48 ms.
 Too dark within the budget → more light (or a wider iris), never gain.
+
+**Boot state:** this unit boots from the factory **Default** user set (since 2026-10-24), so
+anything that opens it starts at gain 0 with no one's old settings — but in the display
+state (8-bit, LUT on). Every tool, and the production software, must apply the design mode
+itself (`reset`); never rely on what the camera booted with. A site agent does not save
+user sets.
 
 **Files:** every command that changes settings first backs the camera up
 (`config/camera_backups/<serial>/`); captures, runs and reports go under the data folder.
@@ -80,6 +88,8 @@ Too dark within the budget → more light (or a wider iris), never gain.
 | exposure | sets all four HDR channel exposures together while HDR tuning is off; 86 µs minimum; beyond one frame period it lowers the frame rate | [measured 2026-10-21/22] |
 | gain | HDR tuning **off** (`raw_hdr`): `Gain` is a **digital multiplier after the merge** — no SNR gain, it scales the output and clips the top (28.6 dB costs 4.75 stops); keep 0 dB. HDR tuning on: `ExposureTime` and `Gain` become read-only and the per-channel exposures/gains apply | [measured 2026-10-21/23] |
 | black level | `BlackLevel` shifts the black of every output by its % of 4095; keep ≥ 1 so dark noise is not clipped at 0 | [measured 2026-10-23] |
+| HDR image enhancement | on by default; **keep on**: switched off, temporal noise rises 10–32 % (most at the darkest levels) and the level drops ≈ 1 %; linearity unchanged (× 2.00). Whether it smooths spatially (fine detail) is not yet known | [measured 2026-10-24] |
+| HDR digital clamping | on by default; no measurable effect on the linear output (noise ± 2 %, level ± 0.5 %) | [measured 2026-10-24] |
 | HDR tuning (`HDRTuningEnable`) | off: one exposure for all channels; on: per-channel exposure and gain | [measured 2026-10-21] |
 | `HDROutput`, `LUTEnable`, pixel format | **must be changed with the stream stopped**: written while streaming they are silently ignored | [measured 2026-10-22] |
 | user sets | Default + UserSet1/2; a user set can be the boot set; it does **not** store HDR tuning or the HDR channel values | [measured 2026-10-21] |
@@ -123,7 +133,7 @@ assessment and the fingerprint do it themselves).
 | BlackLevel | 0 |
 | LUT | on, GammaPointFive (gamma 0.5) |
 | colour transformation | on |
-| HDR tuning / output | off / HDR; image enhancement and digital clamping on |
+| HDR tuning / output | off / HDR; image enhancement and digital clamping on (keep both, see § 4) |
 | HDR channel gains | 19.8 / 4.2 / 29.4 / 4.2 dB |
 | white balance | **auto (Continuous)**, ratios ≈ 1.01 / 1.07 / 1.0 |
 | frame rate | free run (19.7 fps at BayerRG8) |
@@ -135,6 +145,19 @@ off, HDR tuning off, HDR output HDR, BlackLevel 1; everything else as Default.
 
 **Verify** (§10): settings read back equal; on the image: doubling the exposure gives × 2.00;
 the finest shadow step is 1 DN (no digital gain); no dark pixel at exactly 0.
+
+**What a user set stores (survives a power cycle)** [measured 2026-10-24, software reboot and
+power cycle identical]: pixel format, exposure, gain, black level, LUT, colour transformation,
+white balance, HDR output / enhancement / clamping, frame rate, ROI, trigger (≈ 120 features
+per `UserSetFeatureSelector`). **Not stored:** `HDRTuningEnable` and the HDR channel exposures
+and gains (they come back at factory values). So a user set **can** hold the whole `raw_hdr`
+mode (HDR tuning off is the factory value anyway).
+
+**Boot set:** in the lab the camera boots from factory **Default** (no one's old settings).
+On site, once the setup is confirmed, it may boot from **User Set 1** (the site configuration),
+so a power blip brings it back configured — a safety net only: production software still
+applies and verifies the mode after every boot. A software reboot (`DeviceReset`) behaves
+like a power cycle (camera back in ≈ 20 s).
 
 White balance multiplies the raw 24-bit data (black included) even with the colour
 transformation off: keep it at 1.0 and balance colour on the PC. [measured 2026-10-23]
@@ -276,7 +299,9 @@ than a Kowa 8 mm at f/16 under bright diffuse light): an ND filter or extra diff
 - **Channel 0 photon transfer:** needs ≈ 15× less light than a Kowa 8 mm at f/16 under the
   floods (an ND filter or extra diffusion).
 - Temperature behaviour: not measured (operating range −20 to 55 °C ambient [manual]).
-- The effective frame-rate maximum read 6.56 fps once right after a reset (6.93 otherwise).
+- Right after a reset the camera reports a frame-rate maximum of 6.56 fps (6.93 otherwise):
+  tools take the budget from the measured 6.93 fps (§ 5), not from that reading.
+- Does HDR image enhancement smooth spatially (would soften fine detail)? Needs a sharp target.
 
 ## 12. Test conditions and sources
 - Bench: white board lit by two LED panels (10-step dimmers), opal acrylic diffuser on the

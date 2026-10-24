@@ -33,6 +33,8 @@ class SheetSensor(_Sheet):
 
 class SheetTiming(_Sheet):
     row_time_us: float | None = Field(default=None, gt=0, le=1000)
+    #: full-frame free-run frame rate per pixel format, measured (the camera's own maximum
+    #: can read low right after a reset: 6.56 vs 6.93 fps for BayerRG24, 2026-10-24)
     fps_full_frame: dict[str, float] = Field(default_factory=dict)
 
 

@@ -744,6 +744,33 @@ numbers into verdicts and actions by comparing them with that baseline.
     exposure budget per format, focus needs texture); profile comments and black level fixed.
   Still open: the effective frame-rate maximum after a reset read 6.56 fps once (6.93 later);
   no dry-run / no-save option.
+- **Third fresh-agent run (2026-10-24):** caught the boot state (28.6 dB, LUT on), reset,
+  verified, kept gain 0, correct "≈ 9× more light" verdict, and spotted the diffuser left on the
+  lens. Its consistency findings, fixed: one exposure budget (the sheet's per-format frame
+  rate; the camera reads 6.56 fps right after a reset; profile working range = one 24-bit
+  frame, 144.3 ms); the site tool computes highlights with the capture scoring (debayered
+  luminance p99, so both agree); `tune` reports the level metric it steered on, picks the
+  capture closest to the target when every composite is 0, and says when its exposure
+  lowered the frame rate; "rounded" instead of "clamped" for increment rounding; assess-light
+  help says it resets and restores (`--apply` keeps, `--no-reset`); `discover` shows aliases;
+  a scene-structure check (no contrast and no texture beyond noise → "diffuser or cover on
+  the lens?"); `verify` takes its dark checks at the shortest exposure (conclusive on a bright
+  scene); HDR image enhancement (keep on: off raises noise 10–32 %) and digital clamping (no
+  effect) measured; restore compares floats within 1e-4 (frame-rate rounding).
+- **Boot user set (Derek 2026-10-24, option c):** `TwoDService.set_boot_user_set(confirm=True)` /
+  CLI `two-d boot-set --yes` (protected `UserSetDefault`); the TRI054S boots from factory
+  Default since 2026-10-24, and tools and production software still apply the design mode.
+- **Boot set rule (Derek 2026-10-24):** lab → factory Default; on site, after a confirmed
+  setup → User Set 1 (a safety net for power blips; production still applies and verifies the
+  mode). The Phase 10 setup's save now asks separately "installed on site: boot from User
+  Set 1" (GUI check box / CLI question, off by default).
+- **Software reboot = power cycle (verified 2026-10-24):** `TwoDService.reboot_camera(confirm=True)`
+  / CLI `two-d reboot --yes` (DeviceReset, protected): backs up, restarts, waits for the camera,
+  reopens it and verifies the restart by `DeviceUpTime` (reconnect only where there is no
+  uptime, e.g. the JAI). The fingerprint's finish row now **tests what survives a restart**:
+  marker values → User Set 2 (boot set) → reboot → kept / lost per setting → boot set put
+  back (live TRI054S: kept exposure, gain, format, white balance, black level, LUT, colour
+  transformation; lost HDR tuning — identical to Derek's power cycle).
 - **Next:**
   the "fresh agent" test (an agent with only camera_lab + the white paper sets the camera up).
 

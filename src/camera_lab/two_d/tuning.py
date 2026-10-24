@@ -137,8 +137,10 @@ class TuneResult:
     stop_reason: str = "budget"  # converged | clip_limited | too_dark | too_bright | budget
     mode: str | None = None  # profile mode (set by TwoDService.tune)
     strategy: str | None = None
-    final_mean: float | None = None
+    final_mean: float | None = None  # the steered level (kept for compatibility)
     final_clipped_pct: float | None = None
+    level_metric: str = "mean_level"  # what the tuner steered on (mean_level | p99)
+    frame_rate_hz: float | None = None  # at the end (long exposures lower it)
     history: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -154,12 +156,16 @@ class TuneResult:
             "mode": self.mode,
             "strategy": self.strategy,
             "final_mean": self.final_mean,
+            "level_metric": self.level_metric,
+            "final_level": self.final_mean,
             "final_clipped_pct": self.final_clipped_pct,
+            "frame_rate_hz": self.frame_rate_hz,
             "history": self.history,
         }
 
 
 DARK_MEAN = 0.005  # below this the frame carries no exposure information
+_LEVEL_NAMES = {"mean_level": "mean", "p99": "highlights (p99)"}
 CLIP_LIMIT_BRACKET = 1.10  # hi/lo exposure ratio at which a clip-limited search stops
 DARK_JUMP = 100.0
 MAX_GAIN_STEP_DB = 3.0
@@ -304,7 +310,8 @@ class ClassicTuner:
         svc = self.service
         run = svc.start_run(
             self.camera_id,
-            goal=f"{self.label} auto-exposure to mean {self.params.target_mean}",
+            goal=f"{self.label} auto-exposure: {_LEVEL_NAMES[self.params.level_metric]} to "
+            f"{self.params.target_mean}",
             max_steps=self.max_steps,
             method="classic",
             operator=self.operator,
@@ -317,7 +324,8 @@ class ClassicTuner:
             if g_rng is not None
             else (0.0, 0.0)
         )
-        captures: list[tuple[str, float]] = []
+        captures: list[tuple[str, float, float, float]] = []  # id, composite, level, clipped
+        start_fps = svc.get_settings(self.camera_id).settings.frame_rate_hz
         history: list[dict[str, Any]] = []
         points: list[tuple[float, float]] = []
         lo = hi = None
@@ -333,14 +341,16 @@ class ClassicTuner:
                 s = cap.settings
                 mean = cap.scores.metric(self.params.level_metric)
                 clipped = cap.scores.metric("clipped_pct")
-                captures.append((cap.capture_id, cap.scores.composite))
+                captures.append((cap.capture_id, cap.scores.composite, mean, clipped))
                 history.append(
                     {
                         "capture_id": cap.capture_id,
                         "exposure_us": self._exposure_of(s),
                         "gain_db": s.gain_db,
-                        "mean_level": mean,
+                        "mean_level": cap.scores.metric("mean_level"),
+                        "level": mean,
                         "clipped_pct": clipped,
+                        "frame_rate_hz": s.frame_rate_hz,
                     }
                 )
                 if self._converged(mean, clipped):
@@ -369,7 +379,7 @@ class ClassicTuner:
                     stop_reason = "clip_limited"
                     message = (
                         f"clip-limited: highlights clip before the target mean "
-                        f"(best mean {lo_mean:.3f} at {lo:.0f} us)"
+                        f"(best level {lo_mean:.3f} at {lo:.0f} us)"
                     )
                     mean, clipped = lo_mean, lo_clipped
                     if abs(exp - lo) > 1e-6:  # leave the camera at the best exposure
@@ -415,7 +425,22 @@ class ClassicTuner:
         except StepBudgetExhausted:
             if stop_reason == "budget":
                 message = "step budget used up"
-        best = max(captures, key=lambda c: c[1]) if captures else None
+        target = self.params.target_mean
+        # best composite; when every composite is 0 (too dark / too bright) the capture closest
+        # to the target without clipping (third fresh-agent test 2026-10-24)
+        best = (
+            max(
+                captures,
+                key=lambda c: (c[1], c[3] <= self.clip_limit_pct, -abs(c[2] - target)),
+            )
+            if captures
+            else None
+        )
+        end_fps = svc.get_settings(self.camera_id).settings.frame_rate_hz
+        if start_fps and end_fps and end_fps < 0.98 * start_fps:
+            message += (
+                f"; the exposure lowered the frame rate from {start_fps:.2f} to {end_fps:.2f} fps"
+            )
         summary = f"classic tuner: {message}; {run.steps_used} steps"
         svc.finish_run(
             run.run_id,
@@ -433,6 +458,8 @@ class ClassicTuner:
             stop_reason=stop_reason,
             final_mean=mean,
             final_clipped_pct=clipped,
+            level_metric=self.params.level_metric,
+            frame_rate_hz=end_fps,
             history=history,
         )
 
@@ -448,7 +475,10 @@ class ClassicTuner:
         return means
 
     def _grey_world(
-        self, run_id: str, captures: list[tuple[str, float]], history: list[dict[str, Any]]
+        self,
+        run_id: str,
+        captures: list[tuple[str, float, float, float]],
+        history: list[dict[str, Any]],
     ) -> tuple[bool, str]:
         """Scale red/blue so the mean signal R = G = B, then verify with one capture.
 
@@ -491,7 +521,14 @@ class ClassicTuner:
         cap = self._capture(run_id)
         mean = cap.scores.metric(self.params.level_metric)
         clipped = cap.scores.metric("clipped_pct")
-        captures.append((cap.capture_id, cap.scores.composite))
+        captures.append(
+            (
+                cap.capture_id,
+                cap.scores.composite,
+                cap.scores.metric(self.params.level_metric),
+                cap.scores.metric("clipped_pct"),
+            )
+        )
         history.append(
             {
                 "capture_id": cap.capture_id,

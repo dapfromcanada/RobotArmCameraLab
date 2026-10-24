@@ -1050,6 +1050,31 @@ class ArenaCamera(Camera2D):
             stored = list(self._attr(feats, "enumentry_names") or []) if feats is not None else None
             return {"slot": slot, "default": default, "stored_features": stored, "notes": []}
 
+    def reboot(self) -> None:
+        """DeviceReset: the camera restarts and reloads its boot user set — identical to a
+        power cycle for the settings (live TRI054S-C 2026-10-24: back after 19 s)."""
+        with self._lock:
+            if self._streaming:
+                with contextlib.suppress(Exception):
+                    self._dev.stop_stream()
+                self._streaming = False
+            with contextlib.suppress(Exception):  # the camera drops off while answering
+                self._nm.get_node("DeviceReset").execute()
+
+    def uptime_s(self) -> float | None:
+        node = self._readable_node("DeviceUpTime")
+        return float(node.value) if node is not None else None
+
+    def set_boot_user_set(self, slot: str = "Default") -> dict[str, Any]:
+        """UserSetDefault = slot (live TRI054S-C: Default, UserSet1, UserSet2)."""
+        with self._lock, self._guard(), self._stream_paused():
+            node = self._nm.get_node("UserSetDefault")
+            if slot not in (self._attr(node, "enumentry_names") or []):
+                raise ValueError(f"camera cannot boot from {slot!r}")
+            before = str(node.value)
+            node.value = slot
+            return {"boot_set": str(node.value), "was": before}
+
     def load_user_set(self, slot: str = "Default") -> dict[str, Any]:
         """UserSetSelector = slot → UserSetLoad (stream paused), then the open-time setup.
 

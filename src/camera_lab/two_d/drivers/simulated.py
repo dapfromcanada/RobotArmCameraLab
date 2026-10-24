@@ -37,6 +37,7 @@ Changing the pixel format or the ROI size while streaming raises
 from __future__ import annotations
 
 import math
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -155,8 +156,14 @@ class SimulatedCamera(Camera2D):
         width: int,
         height: int,
         sensor: SensorModel | None = None,
+        nvram: dict[str, Any] | None = None,
     ) -> None:
         self._info = info
+        #: what survives a reboot (user sets, boot set, power-on time), like camera flash
+        self._nvram = nvram if nvram is not None else {}
+        self._nvram.setdefault("user_sets", {})
+        self._nvram.setdefault("boot_set", "Default")
+        self._nvram.setdefault("power_on", time.monotonic())
         self.sensor = sensor or SensorModel()
         self.scene: SceneKind = "chart"
         self._light = light
@@ -189,6 +196,11 @@ class SimulatedCamera(Camera2D):
             },
         )
         self._factory = self._settings  # what "Default" loads
+        boot = self._nvram["user_sets"].get(self._nvram["boot_set"])
+        if boot is not None:  # boots from its boot user set; HDR tuning is not stored
+            self._settings = boot.model_copy(
+                update={"advanced": {**boot.advanced, "hdr.enabled": "off"}}
+            )
         self._streaming = False
         self._closed = False
         self._frame_id = 0
@@ -624,8 +636,10 @@ class SimulatedCamera(Camera2D):
         return RestoreReport(written=len(res.results), failed=failed, differences=diffs)
 
     def save_user_set(self, slot: str = "UserSet1", make_default: bool = True) -> dict[str, Any]:
-        """The simulator keeps the saved settings in memory (for tests)."""
-        self.user_sets = {**getattr(self, "user_sets", {}), slot: self.get_settings()}
+        """The simulator keeps the saved settings in its 'flash' (survives reboot / reopen)."""
+        self._nvram["user_sets"][slot] = self.get_settings()
+        if make_default:
+            self._nvram["boot_set"] = slot
         return {
             "slot": slot,
             "default": slot if make_default else None,
@@ -633,12 +647,38 @@ class SimulatedCamera(Camera2D):
             "notes": [],
         }
 
+    def user_set_info(self) -> dict[str, Any]:
+        return {
+            "slots": ["Default", "UserSet1", "UserSet2"],
+            "boot_set_feature": True,
+            "boot_set": self._nvram["boot_set"],
+            "stored_features": None,
+            "notes": ["simulated: every setting except hdr.enabled is stored"],
+        }
+
+    def reboot(self) -> None:
+        """Restart: a new power-on time; the next open boots from the boot user set."""
+        self._nvram["power_on"] = time.monotonic()
+        self._streaming = False
+        self._closed = True
+
+    def uptime_s(self) -> float | None:
+        return time.monotonic() - float(self._nvram["power_on"])
+
+    def set_boot_user_set(self, slot: str = "Default") -> dict[str, Any]:
+        """The boot set, kept in the simulator's 'flash'."""
+        if slot != "Default" and slot not in self._nvram["user_sets"]:
+            raise ValueError(f"camera has no user set {slot!r}")
+        before = self._nvram["boot_set"]
+        self._nvram["boot_set"] = slot
+        return {"boot_set": slot, "was": before}
+
     def load_user_set(self, slot: str = "Default") -> dict[str, Any]:
         """Default = the simulator's start-up settings; UserSetN = what was saved there."""
         if slot == "Default":
             self._settings = self._factory
-        elif slot in getattr(self, "user_sets", {}):
-            self._settings = self.user_sets[slot]
+        elif slot in self._nvram["user_sets"]:
+            self._settings = self._nvram["user_sets"][slot]
         else:
             raise ValueError(f"camera has no user set {slot!r}")
         return {"slot": slot, "notes": []}
@@ -679,6 +719,7 @@ class SimulatedCameraDriver(Camera2DDriver):
         self.clock = clock
         self.width, self.height = width, height
         self.sensor = sensor
+        self.nvram: dict[str, Any] = {}  # the simulated camera's flash, kept across opens
 
     def discover(self) -> list[CameraInfo]:
         """Return the simulated camera."""
@@ -710,4 +751,5 @@ class SimulatedCameraDriver(Camera2DDriver):
             width=self.width,
             height=self.height,
             sensor=self.sensor,
+            nvram=self.nvram,
         )

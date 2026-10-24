@@ -252,3 +252,18 @@ def test_highlight_scoring_and_side_effects(svc: TwoDService) -> None:
     res = svc.apply(SIM, CameraSettingsPatch(frame_rate_hz=200.0))
     for w in res.warnings:
         assert "as a side effect" in w or "frame" in w.lower() or "clamp" in w.lower()
+
+
+def test_boot_user_set_needs_confirmation(svc: TwoDService) -> None:
+    from camera_lab.two_d.errors import InvalidRequestError
+
+    with pytest.raises(InvalidRequestError, match="confirm=True"):
+        svc.set_boot_user_set(SIM, "Default", confirm=False)
+    out = svc.set_boot_user_set(SIM, "Default", confirm=True)
+    assert out["boot_set"] == "Default" and out["backup_before"]
+
+
+def test_featureless_scene_is_flagged(svc: TwoDService, sheets: Path, tmp_path: Path) -> None:
+    c = _by(_assess(svc, sheets, tmp_path, max_exposure_us=1_000_000))  # the flat sim scene
+    assert c["structure"].status == "warn"
+    assert "diffuser or cover on the lens" in c["structure"].action

@@ -200,7 +200,8 @@ def same_value(a: Any, b: Any) -> bool:
             bool(a) == bool(b) if isinstance(a, bool) and isinstance(b, bool) else str(a) == str(b)
         )
     if isinstance(a, int | float) and isinstance(b, int | float):
-        return math.isclose(float(a), float(b), rel_tol=1e-6, abs_tol=1e-9)
+        # 1e-4: the TRI054S-C rounds AcquisitionFrameRate by ~7 ppm (2026-10-24)
+        return math.isclose(float(a), float(b), rel_tol=1e-4, abs_tol=1e-9)
     return str(a) == str(b)
 
 

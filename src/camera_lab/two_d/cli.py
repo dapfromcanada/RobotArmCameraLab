@@ -58,12 +58,24 @@ class Trigger(StrEnum):
     software = "software"
 
 
+def _rounded(requested: Any, value: Any) -> bool:
+    """A 'clamped' result that only moved to the camera's increment (within 1 %)."""
+    try:
+        a, b = float(requested), float(value)
+    except (TypeError, ValueError):
+        return False
+    return abs(a - b) <= 0.01 * max(abs(a), 1e-9)
+
+
 def _apply_text(res: ApplyResult) -> str:
     lines = []
     for r in res.results:
+        status: str = r.status
+        if status == "clamped" and _rounded(r.requested, r.value):
+            status = "rounded"  # to the camera's increment: normal, not a limit
         extra = f" -> {r.value}" if r.status == "clamped" else ""
-        why = f"  ({r.reason})" if r.reason else ""
-        lines.append(f"{r.status:9s} {r.field} = {r.requested}{extra}{why}")
+        why = f"  ({r.reason})" if r.reason and status != "rounded" else ""
+        lines.append(f"{status:9s} {r.field} = {r.requested}{extra}{why}")
     lines.extend(f"warning: {w}" for w in res.warnings)
     return "\n".join(lines) or "nothing changed"
 
@@ -76,20 +88,28 @@ def discover(
     sim: Annotated[bool, typer.Option("--sim", help="Also list the simulated camera.")] = False,
     json_out: JsonOpt = False,
 ) -> None:
-    """List connected 2D cameras.
+    """List connected 2D cameras (serial, alias, vendor, model, version, interface, IP).
+
+    "version" is what discovery reports: the firmware on Lucid cameras, the device version
+    on the JAI. The firmware proper (DeviceFirmwareVersion) is read when a camera is opened.
 
     Example: camera-lab two-d discover --sim --json
     """
     st = state(ctx)
     st.sim = st.sim or sim
-    cams = st.service(ctx).discover()
+    svc = st.service(ctx)
+    cams = svc.discover()
+    names: dict[str, list[str]] = {}
+    for alias, serial in svc.cameras.aliases.items():
+        names.setdefault(serial, []).append(alias)
     emit(
-        [c.model_dump(mode="json") for c in cams],
+        [{**c.model_dump(mode="json"), "aliases": names.get(c.serial, [])} for c in cams],
         json_out,
         lambda: (
             "\n".join(
-                f"{c.serial:12s} {c.vendor:20s} {c.model:16s} fw {c.firmware or '-':12s} "
-                f"{c.interface:10s} {c.ip or '-':16s} {c.driver}"
+                f"{c.serial:12s} {','.join(names.get(c.serial, [])) or '-':10s} {c.vendor:20s} "
+                f"{c.model:16s} version {c.firmware or '-':12s} {c.interface:10s} "
+                f"{c.ip or '-':16s} {c.driver}"
                 for c in cams
             )
             or "no cameras found"
@@ -617,13 +637,66 @@ def setup(
     show(ses.finish_focus(locked))
     show(ses.step_brightness_recheck())
     show(ses.step_white_balance())
-    confirm = yes_save or typer.confirm(
-        "Save these settings to the camera's User Set 1 (and boot from it)?"
+    confirm = yes_save or typer.confirm("Save these settings to the camera's User Set 1?")
+    on_site = confirm and typer.confirm(
+        "Is this camera installed on site (make User Set 1 its boot set)? In the lab it keeps "
+        "booting from factory Default",
+        default=False,
     )
-    res = ses.save(confirm, preset)
+    res = ses.save(confirm, preset, on_site=on_site)
     show(res)
     for note in res.data.get("notes", []):
         typer.echo(f"note: {note}")
+
+
+# ---------------------------------------------------------------- boot set
+@app.command("boot-set")
+@handle_errors
+def boot_set_cmd(
+    ctx: typer.Context,
+    camera: CameraArg,
+    slot: str = typer.Option("Default", help="user set to boot from (Default = factory)"),
+    yes: bool = typer.Option(False, "--yes", help="confirm: this writes camera memory"),
+) -> None:
+    """Choose the user set the camera boots from (writes camera memory; needs --yes).
+
+    Default (factory) is recommended: anything that opens the camera then starts with gain
+    0 and no one's old settings. camera_lab tools still reset to the design mode.
+
+    Example: camera-lab two-d boot-set triton --slot Default --yes
+    """
+    if not yes:
+        raise typer.BadParameter("this writes camera memory: add --yes to confirm")
+    svc = state(ctx).service(ctx)
+    svc.open(camera, OWNER)
+    out = svc.set_boot_user_set(camera, slot, confirm=True, actor="human")
+    typer.echo(f"boot user set: {out['was']} -> {out['boot_set']} (backup {out['backup_before']})")
+
+
+@app.command("reboot")
+@handle_errors
+def reboot_cmd(
+    ctx: typer.Context,
+    camera: CameraArg,
+    yes: bool = typer.Option(False, "--yes", help="confirm the camera restart"),
+) -> None:
+    """Restart the camera (DeviceReset): like a power cycle, it reloads its boot user set.
+
+    Waits for the camera to come back (≈ 20–30 s), reopens it and checks the restart by its
+    uptime. The camera is backed up first. Needs --yes.
+
+    Example: camera-lab two-d reboot triton --yes
+    """
+    if not yes:
+        raise typer.BadParameter("this restarts the camera: add --yes to confirm")
+    svc = state(ctx).service(ctx)
+    svc.open(camera, OWNER)
+    out = svc.reboot_camera(camera, confirm=True, actor="human")
+    up = out["uptime_after_s"]
+    typer.echo(
+        f"camera back; uptime {up:.0f} s" if up is not None else "camera back (no uptime counter)"
+    )
+    typer.echo(f"restart verified: {out['restart_verified']} ({out['verified_by']})")
 
 
 # ------------------------------------------------------------------- reset
@@ -690,12 +763,19 @@ def assess_light_cmd(
         0.0, help="exposure budget in ms (default: one frame at the camera's frame rate)"
     ),
     apply: bool = typer.Option(False, help="leave the camera at the recommended exposure"),
+    reset: bool = typer.Option(
+        True, help="start from factory Default + the design mode (--no-reset: as it is)"
+    ),
 ) -> None:
     """Assess the light on the scene the camera sees, against the camera model's baseline.
 
     No test jig: point the camera at the real scene. Checks the camera state (linear
-    output), flicker, brightness, SNR, clipping and the light distribution, and says what
-    to change. Report saved under the data folder (two_d/site_light/<serial>/).
+    output), flicker, brightness, SNR, clipping, scene structure and the light distribution,
+    and says what to change. Report saved under the data folder (two_d/site_light/<serial>/).
+
+    The camera is backed up, reset to factory Default + its design mode, measured, and then
+    PUT BACK as it was — unless --apply, which leaves it in the design mode at the
+    recommended exposure.
 
     Example: camera-lab two-d assess-light triton
     """
@@ -709,6 +789,7 @@ def assess_light_cmd(
         actor="human",
         max_exposure_us=max_exposure_ms * 1000 or None,
         apply=apply,
+        reset=reset,
     )
     marks = {"pass": "ok  ", "warn": "WARN", "fail": "FAIL", "info": "info"}
     for c in rep.checks:

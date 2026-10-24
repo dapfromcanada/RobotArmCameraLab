@@ -13,6 +13,7 @@ from typing import Any
 from PySide6.QtCore import QTimer, Signal
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QFrame,
     QHBoxLayout,
@@ -136,6 +137,7 @@ class SetupWindow(QDialog):
         self.run_next_button = QPushButton("Run next step")
         self.retry_button = QPushButton("Retry")
         self.save_button = QPushButton("Save to User Set 1...")
+        self.on_site_box = QCheckBox("Installed on site: boot from User Set 1")
         self.notes_label = QLabel("")
         self.focus_timer = QTimer(self)
 
@@ -184,6 +186,7 @@ class SetupWindow(QDialog):
         self.focus_layout.addWidget(self.focus_locked_button)
         self.button_layout.addWidget(self.run_next_button)
         self.button_layout.addWidget(self.retry_button)
+        self.button_layout.addWidget(self.on_site_box)
         self.button_layout.addWidget(self.save_button)
 
         self.panel_layout.addWidget(self.steps_title_label)
@@ -512,7 +515,7 @@ class SetupWindow(QDialog):
         self._set_row("save", STATE_RUNNING, "")
         self._show_message(RUNNING_TEXT.format(step=STEP_LABELS["save"]), LEVEL_INFO)
         self._refresh_ui_state()
-        self._submit("setup_save", confirm=True)
+        self._submit("setup_save", confirm=True, on_site=self.on_site_box.isChecked())
 
     # ------------------------------------------------------------ closing
     def done(self, result: int) -> None:

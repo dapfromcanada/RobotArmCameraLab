@@ -245,3 +245,15 @@ def test_save_failure_is_recorded_with_the_camera_answer(
     assert report["steps"][-1]["status"] == "fail"
     steps = ses.run.recorder.read_steps()  # type: ignore[union-attr]
     assert steps[-1].tool == "setup.save" and "Node is not writable" in str(steps[-1].result)
+
+
+def test_setup_save_changes_the_boot_set_only_on_site(
+    make_service: Callable[..., TwoDService],
+) -> None:
+    svc = make_service()
+    svc.open("SIM-0001", "test")
+    cam = svc._open["SIM-0001"].camera
+    cam.save_user_set("UserSet1", make_default=False)  # lab: saved, boot set unchanged
+    assert svc.user_set_info("SIM-0001")["boot_set"] == "Default"
+    cam.save_user_set("UserSet1", make_default=True)  # on site
+    assert svc.user_set_info("SIM-0001")["boot_set"] == "UserSet1"

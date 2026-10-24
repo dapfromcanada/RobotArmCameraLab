@@ -23,6 +23,8 @@ from camera_lab.two_d.fingerprint.common import (
     StepPlan,
 )
 
+PERSIST_CHECK = "OK to write test values to User Set 2 and restart the camera"
+
 
 class PlanMixin(SessionBase):
     """Builds :attr:`plan`."""
@@ -133,12 +135,14 @@ class PlanMixin(SessionBase):
             "Iris back open: finish" if self._light_changes else "Finish",
             (
                 "Set the iris back fully open and the light to the reference; keep the diffuser "
-                "on. camera_lab checks the light matches the flat step, reads the user sets and "
-                "writes the fingerprint. Remove the diffuser afterwards."
+                "on. camera_lab checks the light matches the flat step, tests what survives a "
+                "restart (test values in User Set 2, camera reboots ≈ 30 s) and writes the "
+                "fingerprint. Remove the diffuser afterwards."
             )
             if self._light_changes
-            else "Run to read the user sets and write the fingerprint; then remove the diffuser.",
-            back,
+            else "Run to test what survives a restart (test values in User Set 2, camera reboots "
+            "≈ 30 s) and write the fingerprint; then remove the diffuser.",
+            (*back, PERSIST_CHECK),
             ("light_back", "user_sets", "report"),
         )
         n = 0

@@ -7,7 +7,8 @@
 4. ``dark_clip``  — no pixel reads exactly 0 (black level high enough: noise not clipped).
 5. ``shadow_step`` — the finest step between shadow values is 1 DN (no digital gain).
 
-Nothing is changed except the exposure, briefly, for check 3; it is put back.
+Nothing is changed except the exposure, briefly (check 3, and checks 4–5 at the shortest
+exposure, where many pixels are near black); it is put back.
 """
 
 from __future__ import annotations
@@ -62,9 +63,12 @@ def verify_camera(
     try:
         a.set_budget()
         a.camera_state()
+        # the dark checks at the shortest exposure: plenty of pixels near black even on a
+        # bright scene (third fresh-agent test 2026-10-24: inconclusive at the working one)
+        a.set_exposure(a.exposure_range()[0])
+        img = a.plane()
     finally:
         a.set_exposure(start)
-    img = a.plane()
     zero = float(np.mean(img == 0) * 100)
     a.add(
         SiteCheck(

@@ -1,4 +1,4 @@
-# Camera white paper, machine-readable twin of TRI054S-C.md. DRAFT v12, 2026-10-24 (fingerprint 20261024T084539Z).
+# Camera white paper, machine-readable twin of TRI054S-C.md. DRAFT v14, 2026-10-24 (fingerprint 20261024T084539Z).
 # null = to be measured by the next fingerprint run.
 schema_version: 1
 model: TRI054S-C
@@ -29,6 +29,12 @@ startup:                              # never trust the boot state
     black.level: 1.0
   verify: [settings read back equal, "exposure x2 -> signal x2.00", finest shadow step 1 DN, no dark pixel at 0]
   white_balance_multiplies_raw: true
+  boot_user_set: {lab: Default, site: UserSet1 after a confirmed setup}   # tools still reset/verify
+  user_set_stores: [PixelFormat, ExposureTime, Gain, BlackLevel, LUTEnable, ColorTransformationEnable, BalanceRatio, HDROutput, HDRImageEnhancementEnable, HDRDigitalClampingEnable, AcquisitionFrameRate, Width, Height, OffsetX, OffsetY, TriggerMode]
+  user_set_does_not_store: [HDRTuningEnable, HDR channel exposures and gains]
+  software_reboot: {node: DeviceReset, back_after_s: 19, equivalent_to_power_cycle: true}
+  hdr_image_enhancement: {default: "on", keep: "on", effect: "off raises temporal noise 10-32 %, linearity unchanged"}
+  hdr_digital_clamping: {default: "on", effect: "none measurable on linear output"}
 sensor:
   name: Sony IMX490
   megapixels: 5.4

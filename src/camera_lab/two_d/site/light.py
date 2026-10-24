@@ -29,6 +29,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+import cv2
 import numpy as np
 import numpy.typing as npt
 from pydantic import BaseModel, ConfigDict, Field
@@ -38,6 +39,7 @@ from camera_lab.two_d.camera_models import ModelSheet, load_model_sheet
 from camera_lab.two_d.errors import ConfigurationError
 from camera_lab.two_d.fingerprint import measure as fm
 from camera_lab.two_d.models import CameraSettingsPatch, is_bayer
+from camera_lab.two_d.scoring import score_frame
 
 if TYPE_CHECKING:
     from camera_lab.two_d.service import Actor, TwoDService
@@ -53,9 +55,10 @@ FRAME_FLICKER_WARN_PCT = 1.0  # frame-to-frame brightness change (std, % of the 
 FRAME_FLICKER_FAIL_PCT = 5.0
 SNR_WARN = 0.6  # measured / expected SNR below this → noisier than the model should be
 CLIP_WARN_PCT, CLIP_FAIL_PCT = 0.5, 5.0
-HIGHLIGHT_TARGET = 0.80  # expose to the right: the scene's highlights (p99.5) here
-HIGHLIGHT_PCT = 99.0  # the same rule as the raw_hdr scoring (level_metric p99)
+HIGHLIGHT_TARGET = 0.80  # expose to the right: the scene's highlights (p99) here
 LIGHT_DRIFT_WARN = 0.05  # light level change between the start and the end of the check
+STRUCTURE_STOPS = 1.0  # scene contrast below this ...
+STRUCTURE_NOISE_FACTOR = 2.0  # ... and fine detail below this × the noise → featureless
 GAIN_TOLERANCE_DB = 0.1
 MAINS_HZ = (100.0, 120.0)
 MAINS_TOLERANCE = 0.12
@@ -144,11 +147,18 @@ class _Assessment:
         return view.settings.frame_rate_hz
 
     def set_budget(self) -> float:
-        """One frame at the camera's fastest frame rate, or the caller's maximum."""
+        """One frame at the format's free-run frame rate (the model sheet's measured value,
+        else the camera's maximum), or the caller's maximum."""
         lo, hi = self.exposure_range()
-        start = float(self.svc.get_settings(self.cam).settings.exposure_us)
-        fps = self.max_fps(lo)
-        self.set_exposure(start)
+        view = self.svc.get_settings(self.cam).settings
+        start = float(view.exposure_us)
+        sheet_fps = self.sheet.timing.fps_full_frame.get(view.pixel_format) if self.sheet else None
+        roi_full = view.roi.x == 0 and view.roi.y == 0
+        if sheet_fps and roi_full:
+            fps: float | None = sheet_fps
+        else:
+            fps = self.max_fps(lo)
+            self.set_exposure(start)
         self.budget = min(self.max_exposure_us or (1e6 / fps if fps else hi), hi)
         return self.budget
 
@@ -172,6 +182,17 @@ class _Assessment:
                 data={"gain_db": now, "baseline_gain_db": want},
             )
         )
+
+    def scored_levels(self, frames: int = 2) -> tuple[float, float]:
+        """(p99, mean) as fractions of full scale, exactly as `capture` scores them."""
+        params = self.svc.scoring_params(self.cam)
+        hi, mean = [], []
+        for _ in range(frames):
+            rep = score_frame(self.svc.grab(self.cam, 7000), params)
+            hi.append(rep.metric("p99"))
+            mean.append(rep.metric("mean_level"))
+        black = self.black / max(self.full, 1.0)
+        return float(np.mean(hi)) - black, float(np.mean(mean)) - black
 
     def level(self, img: npt.NDArray[np.float64]) -> float:
         """Mean above black as a fraction of the range."""
@@ -378,19 +399,17 @@ class _Assessment:
         )
 
     def brightness(self, exp: float, mains: float | None) -> float:
-        """Exposure that puts the scene's highlights (p99.5) at HIGHLIGHT_TARGET of full scale
+        """Exposure that puts the scene's highlights (p99) at HIGHLIGHT_TARGET of full scale
         ("expose to the right": a linear sensor's SNR is best near the top), within the
-        budget; whole flicker periods when the light flickers at mains frequency."""
+        budget; whole flicker periods when the light flickers at mains frequency. The levels
+        come from the same scoring as `capture` (debayered luminance), so both agree."""
         lo, hi = self.exposure_range()
         exp = self.set_exposure(exp)
-        span = max(self.full - self.black, 1.0)
         for _ in range(8):  # back off until the highlights are not clipped
-            img = np.mean([self.plane() for _ in range(2)], axis=0)
-            hi_lvl = (float(np.percentile(img, HIGHLIGHT_PCT)) - self.black) / span
+            hi_lvl, lvl = self.scored_levels()
             if hi_lvl < 0.95 or exp <= lo:
                 break
             exp = self.set_exposure(max(lo, exp / 4))
-        lvl = self.level(img)
         target = HIGHLIGHT_TARGET
         rate = max(hi_lvl, 1e-9) / exp  # highlight level per µs (linear output)
         mean_rate = lvl / exp
@@ -403,7 +422,7 @@ class _Assessment:
                 rec = max(half, math.floor(rec / half) * half)
         data = {
             "highlight_target": target,
-            "highlight_percentile": HIGHLIGHT_PCT,
+            "highlight_percentile": 99,  # as the capture scores (level_metric p99)
             "exposure_needed_us": want,
             "exposure_budget_us": budget,
             "recommended_exposure_us": rec,
@@ -554,6 +573,32 @@ class _Assessment:
                 + (f" (camera ≈ {cam_range:.0f})" if cam_range else ""),
                 action=action,
                 data=data,
+            )
+        )
+        # structure: is there anything to see (edges, texture) beyond the noise?
+        signal = max(float(a.mean()) - self.black, 1e-9)
+        _, tvar = fm.pair_temporal(a, b)
+        avg = (a + b) / 2
+        detail = avg - cv2.GaussianBlur(avg, (0, 0), 3.0)
+        texture = 1.4826 * float(np.median(np.abs(detail - np.median(detail)))) / signal
+        noise = math.sqrt(tvar / 2) / signal  # what noise alone leaves in the 2-frame mean
+        featureless = contrast < STRUCTURE_STOPS and texture < STRUCTURE_NOISE_FACTOR * noise
+        self.add(
+            SiteCheck(
+                name="structure",
+                status="warn" if featureless else "pass",
+                message=(
+                    f"no structure in view: contrast {contrast:.1f} stops, texture "
+                    f"{texture / max(noise, 1e-12):.1f}× the noise"
+                    if featureless
+                    else f"the scene has structure (contrast {contrast:.1f} stops, texture "
+                    f"{texture / max(noise, 1e-12):.1f}× the noise)"
+                ),
+                action="a diffuser or cover on the lens, or a blank surface? Light and SNR are "
+                "fine to judge, but focus cannot be judged here: aim at the working scene"
+                if featureless
+                else "",
+                data={"contrast_stops": contrast, "texture_vs_noise": texture / max(noise, 1e-12)},
             )
         )
         # distribution: 3 × 3 grid

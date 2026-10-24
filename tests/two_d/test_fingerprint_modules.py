@@ -96,7 +96,10 @@ def test_modules_follow_the_sensor_type(ses: FingerprintSession) -> None:
     assert _rows(ses) == ["cap", "diffuser", "finish"]
     assert ses.plan["diffuser"].measures == ("timing", "flat", "noise_gain")
     assert "colour" not in ses.plan["diffuser"].instruction
-    assert ses.plan["finish"].label == "3. Finish" and ses.plan["finish"].checks == ()
+    assert ses.plan["finish"].label == "3. Finish"
+    assert ses.plan["finish"].checks == (
+        "OK to write test values to User Set 2 and restart the camera",
+    )
 
     _replan(ses, "prism", hdr=False)  # e.g. the JAI: core + colour
     assert _rows(ses) == ["cap", "diffuser", "finish"]
@@ -147,3 +150,15 @@ def test_row_variance_separates_banding_from_pixel_noise() -> None:
     pts = [fm.PtcPoint(exposure_us=1000, mean_dn=1000, var_dn2=400, row_var_dn2=900)]
     assert fm.flicker_inflation(pts, 0.0) == (pytest.approx(2.25), 1000)
     assert fm.flicker_inflation(pts, 900.0)[0] == 0.0  # all of it is the sensor's row noise
+
+
+def test_persistence_test_finds_what_a_reboot_keeps(ses: FingerprintSession) -> None:
+    """The simulated camera stores everything in a user set except HDR tuning (like the
+    TRI054S-C); the test leaves the boot set as it found it."""
+    ses.step_identity()
+    res = ses.step_user_sets()
+    per = res.data["persistence"]
+    assert "hdr.enabled" in per["lost"]
+    assert {"exposure_us", "gain_db", "white_balance.red"} <= set(per["kept"])
+    assert res.data["restart"]["restart_verified"] is True
+    assert ses.service.user_set_info(SIM)["boot_set"] == "Default"  # put back

@@ -21,7 +21,7 @@ default_mode: raw_hdr
 # modes run at 20.8 fps → ≈ 48 ms. Longer exposures lower the frame rate. The HDR channel
 # gains stay fixed (not knobs). Too dark at the budget → ask for more light, never gain.
 working_range:
-  exposure_us: {max: 200000}
+  exposure_us: {max: 144300}   # one frame at 6.93 fps (BayerRG24, raw_hdr): the tuner stays inside
   gain_db: {min: 0, max: 18}
   "hdr.ch*.exposure_us": {max: 47900}
 

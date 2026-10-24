@@ -568,10 +568,12 @@ class CameraWorker(QObject):
             result = session.finish_focus(locked)
         return SetupOutcome(result, session.next_step(), session.focus_best)
 
-    def _job_setup_save(self, confirm: bool, preset_name: str | None = None) -> SetupOutcome:
+    def _job_setup_save(
+        self, confirm: bool, preset_name: str | None = None, on_site: bool = False
+    ) -> SetupOutcome:
         session = self._require_setup()
         with self._streaming_grabs():
-            result = session.save(confirm, preset_name)
+            result = session.save(confirm, preset_name, on_site=on_site)
         return SetupOutcome(result, session.next_step(), session.focus_best)
 
     # -------------------------------------------------------- fingerprint

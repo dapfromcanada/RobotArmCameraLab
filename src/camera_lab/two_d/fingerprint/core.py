@@ -31,6 +31,7 @@ from camera_lab.two_d.fingerprint.common import (
     NOISE_GAIN_STEP_DB,
     NOISE_PAIRS,
     NOISE_TARGET,
+    PERSIST_SLOT,
     SETTLE_FRAMES,
     SWEEP_LOW_FACTOR,
     FpResult,
@@ -413,15 +414,102 @@ class CoreMeasurements(SessionBase):
         )
 
     def step_user_sets(self) -> FpResult:
+        """What survives a power cycle: marker values → User Set 2 (boot set) → software
+        reboot (identical to a power cycle, verified 2026-10-24) → kept / lost per setting.
+        The boot set is put back afterwards; the report restores the settings."""
         self._require("identity")
         info = self.service.user_set_info(self.camera_id)
+        slots = info.get("slots", [])
+        if not info.get("boot_set_feature") or PERSIST_SLOT not in slots:
+            return self._record(
+                FpResult(
+                    step="user_sets",
+                    status="pass",
+                    message=f"user sets {', '.join(slots) or 'none'}; no boot-set feature or no "
+                    f"{PERSIST_SLOT}: persistence not tested (power-cycle test by a human)",
+                    data=info,
+                )
+            )
+        view = self.service.get_settings(self.camera_id)
+        s0 = view.settings
+        marks: dict[str, Any] = {}
+        lo, hi = self._range("exposure_us")
+        marks["exposure_us"] = min(hi, max(lo, s0.exposure_us * 0.83))
+        g = view.ranges.get("gain_db")
+        if g is not None and not isinstance(g, NotAdjustable) and g.max.value >= 3.3:
+            marks["gain_db"] = 3.3
+        if s0.white_balance:
+            marks["white_balance"] = {**s0.white_balance, "red": 1.23}
+        others = [
+            f
+            for f in view.options.get("pixel_format", ())
+            if format_family(f) == format_family(s0.pixel_format) and f != s0.pixel_format
+        ]
+        if others:
+            marks["pixel_format"] = others[0]
+        adv: dict[str, Any] = {}
+        if "black.level" in view.ranges:
+            adv["black.level"] = 2.3
+        for key in ("lut.enabled", "color.transformation"):
+            if key in s0.advanced:
+                adv[key] = "on" if s0.advanced[key] == "off" else "off"
+        if adv:
+            marks["advanced"] = adv
+        self._set(**marks)
+        if "hdr.enabled" in s0.advanced:  # last: it locks exposure and gain on some cameras
+            self._set(
+                advanced={"hdr.enabled": "on" if s0.advanced["hdr.enabled"] == "off" else "off"}
+            )
+        marked = self._settings()
+        prev_boot = info.get("boot_set") or "Default"
+        self.service.save_user_set(
+            self.camera_id, PERSIST_SLOT, confirm=True, make_default=True, actor=self.actor
+        )
+        try:
+            restart = self.service.reboot_camera(self.camera_id, confirm=True, actor=self.actor)
+            after = self._settings()
+        finally:
+            self.service.set_boot_user_set(
+                self.camera_id, prev_boot, confirm=True, actor=self.actor
+            )
+        kept: list[str] = []
+        lost: list[str] = []
+        pairs: list[tuple[str, Any, Any]] = [
+            (k, getattr(marked, k), getattr(after, k))
+            for k in ("exposure_us", "gain_db", "pixel_format")
+            if k in marks
+        ]
+        if "white_balance" in marks:
+            pairs.append(
+                (
+                    "white_balance.red",
+                    (marked.white_balance or {}).get("red"),
+                    (after.white_balance or {}).get("red"),
+                )
+            )
+        for key in (*adv, "hdr.enabled"):
+            if key in marked.advanced:
+                pairs.append((key, marked.advanced.get(key), after.advanced.get(key)))
+        for name, want, got in pairs:
+            same = (
+                abs(float(got) - float(want)) <= 0.01 * max(abs(float(want)), 1e-9)
+                if isinstance(want, int | float) and isinstance(got, int | float)
+                else got == want
+            )
+            (kept if same else lost).append(name)
+        verified = restart.get("restart_verified")
         return self._record(
             FpResult(
                 step="user_sets",
                 status="pass",
-                message=f"user sets {', '.join(info.get('slots', [])) or 'none'}; "
-                f"boot-set feature: {'yes' if info.get('boot_set_feature') else 'no'} "
-                "(power-up behaviour: human power-cycle test)",
-                data=info,
+                message=f"after a reboot ({restart['verified_by']}"
+                + ("" if verified is not False else ", NOT verified")
+                + f") from {PERSIST_SLOT}: kept {', '.join(kept) or 'nothing'}; lost "
+                f"{', '.join(lost) or 'nothing'}; boot set back to {prev_boot}",
+                data={
+                    **info,
+                    "persistence": {"kept": kept, "lost": lost, "slot": PERSIST_SLOT},
+                    "restart": restart,
+                },
             )
         )

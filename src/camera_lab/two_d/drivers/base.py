@@ -114,6 +114,21 @@ class Camera2D(ABC):
         """
         raise NotImplementedError(f"{type(self).__name__} cannot save user sets")
 
+    def reboot(self) -> None:
+        """Restart the camera (like a power cycle: it reloads its boot user set). The camera
+        drops off the network; the handle is unusable afterwards. Protected: only via
+        ``TwoDService.reboot_camera(confirm=True)``."""
+        raise NotImplementedError(f"{type(self).__name__} cannot reboot the camera")
+
+    def uptime_s(self) -> float | None:
+        """Seconds since the camera powered up / rebooted (None if it does not tell)."""
+        return None
+
+    def set_boot_user_set(self, slot: str = "Default") -> dict[str, Any]:
+        """Choose the user set the camera loads at power-up (writes camera memory: only via
+        ``TwoDService.set_boot_user_set(confirm=True)``)."""
+        raise NotImplementedError(f"{type(self).__name__} cannot choose a boot user set")
+
     def load_user_set(self, slot: str = "Default") -> dict[str, Any]:
         """Load a user set (``Default`` = the factory settings) into the live settings, then
         camera_lab's open-time setup again (autos off, trigger off, free-run). Live only:

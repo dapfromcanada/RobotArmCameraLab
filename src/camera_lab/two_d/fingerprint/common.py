@@ -66,6 +66,8 @@ FLAT_REPEAT_KEYS = (
     "photon_transfer.full_well_e",
 )
 COLOUR_FRAMES = 6
+#: The user-set persistence test writes its marker values here (a scratch slot).
+PERSIST_SLOT = "UserSet2"
 #: Lit measurements use exposures of at least this (bench file `min_exposure_us` overrides):
 #: bench LEDs ripple (~4 kHz on the "DC" floods, 120 Hz on the dimmed panels) and a short
 #: rolling-shutter exposure turns that into row bands (measured 2026-10-23).

@@ -26,6 +26,7 @@ records.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import time
 from collections.abc import Callable, Mapping
@@ -97,6 +98,7 @@ from camera_lab.two_d.drivers.simulated import SimulatedCameraDriver
 from camera_lab.two_d.errors import (
     AlreadyExistsError,
     CameraBusyError,
+    CameraDisconnectedError,
     CameraNotFoundError,
     CameraNotOpenError,
     ConfigurationError,
@@ -136,6 +138,8 @@ Actor = str
 REAL_DRIVERS = ("arena", "ebus")
 _LIMITED = ("exposure_us", "gain_db", "frame_rate_hz")
 MAX_GRAB_TIMEOUT_MS = 60_000
+#: wait after DeviceReset before trying to reopen (the TRI054S is back after ≈ 19 s)
+REBOOT_SETTLE_S = 10.0
 
 
 # ===================================================================== views
@@ -530,6 +534,88 @@ class TwoDService:
         _log.info(
             "user_set_saved", camera_id=serial, slot=slot, default=out.get("default"), actor=actor
         )
+        return {**out, "backup_before": backup.backup_id}
+
+    def reboot_camera(
+        self,
+        camera_id: str,
+        *,
+        confirm: bool,
+        actor: Actor = "human",
+        attempts: int = 30,
+        wait_s: float = 3.0,
+    ) -> dict[str, Any]:
+        """Restart the camera (``DeviceReset``): it reloads its boot user set exactly as after
+        a power cycle (verified 2026-10-24). Protected: needs confirm=True; backed up first.
+
+        The camera is released, the service waits for it to come back and reopens it, then
+        checks the restart: the uptime is lower than before (or, for a camera without an
+        uptime counter, only that it reconnected).
+        """
+        if confirm is not True:
+            raise InvalidRequestError("rebooting the camera needs confirm=True")
+        serial, oc = self._require_open(camera_id)
+        owner = oc.lock.owner
+        backup, _ = self._take_backup(serial, oc, "before a camera reboot")
+        before = oc.camera.uptime_s()
+        try:
+            oc.camera.reboot()
+        except NotImplementedError:
+            raise ConfigurationError(f"camera {serial}: its driver cannot reboot it") from None
+        dropped = self._open.pop(serial)
+        self._active_runs.pop(serial, None)
+        with contextlib.suppress(Exception):
+            dropped.camera.close()
+        dropped.lock.release()
+        self._sleep(REBOOT_SETTLE_S)
+        last: Exception | None = None
+        for _ in range(attempts):
+            try:
+                self._known.pop(serial, None)
+                self.open(serial, owner)
+                break
+            except (CameraNotFoundError, DeviceError, CameraDisconnectedError) as exc:
+                last = exc
+                self._sleep(wait_s)
+        else:
+            raise DeviceError(f"camera {serial} did not come back after the reboot: {last}")
+        after = self._open[serial].camera.uptime_s()
+        restarted = None if after is None else (before is None or after < before)
+        _log.info("camera_rebooted", camera_id=serial, uptime_before=before, uptime_after=after)
+        return {
+            "camera_id": serial,
+            "uptime_before_s": before,
+            "uptime_after_s": after,
+            "restart_verified": restarted,
+            "verified_by": "uptime" if after is not None else "reconnect only",
+            "backup_before": backup.backup_id,
+        }
+
+    def set_boot_user_set(
+        self, camera_id: str, slot: str = "Default", *, confirm: bool, actor: Actor = "human"
+    ) -> dict[str, Any]:
+        """Choose the user set the camera boots from. Writes camera memory: confirm=True.
+
+        ``UserSetDefault`` is a protected feature; this confirmed call and
+        :meth:`save_user_set` are the only paths that write it. Booting from the factory
+        ``Default`` means anything that opens the camera starts with gain 0 and no stale
+        settings (Derek 2026-10-24, option c); tools still reset to the design mode.
+        """
+        if confirm is not True:
+            raise InvalidRequestError(
+                "choosing the boot user set writes camera memory: confirm=True is required"
+            )
+        serial, oc = self._require_open(camera_id)
+        backup, _ = self._take_backup(serial, oc, f"before booting from {slot}")
+        try:
+            out = oc.camera.set_boot_user_set(slot)
+        except NotImplementedError:
+            raise ConfigurationError(
+                f"camera {serial}: its driver cannot choose a boot user set"
+            ) from None
+        except ValueError as exc:
+            raise InvalidRequestError(str(exc)) from None
+        _log.info("boot_user_set", camera_id=serial, slot=slot, actor=actor, was=out.get("was"))
         return {**out, "backup_before": backup.backup_id}
 
     def user_set_info(self, camera_id: str) -> dict[str, Any]:

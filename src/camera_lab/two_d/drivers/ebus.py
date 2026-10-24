@@ -526,10 +526,10 @@ class EbusCamera(Camera2D):
                 result = self._param("UserSetLoad").Execute()
                 if not result.IsOK():
                     raise _ParamError(f"UserSetLoad: {_result_text(result)}")
+                self.configure_on_open()  # with the stream stopped (stream-locked parts)
             finally:
                 if was_streaming:
                     self.start_stream()
-        self.configure_on_open()
         return {"slot": slot, "notes": ["open-time setup re-applied (autos off)"]}
 
     def identity_nodes(self) -> dict[str, str]:

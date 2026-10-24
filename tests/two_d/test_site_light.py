@@ -207,3 +207,48 @@ def test_reset_starts_from_factory_default_and_reads_back(
     rep = _assess(svc, sheets, tmp_path, reset=True)
     start = _by(rep)["start_state"]
     assert start.status == "pass" and start.data["mode"] == "linear"
+
+
+def test_verify_passes_a_good_camera_and_catches_problems(
+    svc: TwoDService, sheets: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from camera_lab.two_d.site.verify import verify_camera
+
+    svc.set_mode(SIM, "linear")
+    svc.apply(SIM, CameraSettingsPatch(pixel_format="Mono12", exposure_us=5000))
+    c = {x.name: x for x in verify_camera(svc, SIM, sheet_root=sheets)}
+    assert c["mode"].status == "pass" and c["camera_state"].status == "pass"
+    assert c["dark_clip"].status == "pass"
+    assert svc.get_settings(SIM).settings.exposure_us == pytest.approx(5000)  # put back
+
+    _wrap_grab(svc, monkeypatch, lambda d: np.where(d < np.percentile(d, 5), 0, d))  # clipped
+    c = {x.name: x for x in verify_camera(svc, SIM, sheet_root=sheets)}
+    assert c["dark_clip"].status == "fail" and "black level" in c["dark_clip"].action
+
+
+def test_tune_never_touches_gain_in_a_mode_without_a_gain_knob(
+    make_service: Callable[..., TwoDService], tmp_path: Path
+) -> None:
+    import yaml
+
+    from camera_lab.two_d.profiles import profiles_dir
+
+    prof = yaml.safe_load((profiles_dir() / "SIM-0001.yaml").read_text())
+    prof["modes"]["linear"]["knobs"] = ["exposure_us"]  # like raw_hdr
+    (tmp_path / "SIM-0001.yaml").write_text(yaml.safe_dump(prof))
+    s = make_service(profiles_root=tmp_path)
+    s.open(SIM, "test")
+    s.apply(SIM, CameraSettingsPatch(gain_db=3.0, exposure_us=100.0))  # far too dark
+    s.tune(SIM, "linear", max_steps=6)
+    assert s.get_settings(SIM).settings.gain_db == pytest.approx(3.0)  # untouched
+
+
+def test_highlight_scoring_and_side_effects(svc: TwoDService) -> None:
+    from camera_lab.two_d.scoring import ScoringParams, sub_scores
+
+    p = ScoringParams(level_metric="p99", target_mean=0.8)
+    m = {"mean_level": 0.1, "p99": 0.8, "clipped_pct": 0.0, "black_pct": 0.0, "noise_sigma": 0.0}
+    assert sub_scores(m, p)["exposure"] == 1.0  # judged by the highlights, not the mean
+    res = svc.apply(SIM, CameraSettingsPatch(frame_rate_hz=200.0))
+    for w in res.warnings:
+        assert "as a side effect" in w or "frame" in w.lower() or "clamp" in w.lower()

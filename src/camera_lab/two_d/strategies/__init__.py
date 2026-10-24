@@ -67,6 +67,15 @@ class Strategy(ABC):
 STRATEGIES: Registry[type[Strategy]] = Registry("tuning strategy")
 
 
+def _knob_limits(mode: ModeProfile, kw: dict[str, Any]) -> dict[str, Any]:
+    """Only the mode's knobs may move: gain if ``gain_db`` is one, white balance if
+    ``white_balance`` is one."""
+    out = dict(kw)
+    out["use_gain"] = "gain_db" in mode.knobs
+    out["white_balance"] = bool(kw.get("white_balance")) and "white_balance" in mode.knobs
+    return out
+
+
 @STRATEGIES.register("linear")
 class LinearStrategy(Strategy):
     """Exposure → gain → grey-world WB by gain."""
@@ -76,8 +85,10 @@ class LinearStrategy(Strategy):
     def build(
         self, service: TwoDService, camera_id: str, mode: ModeProfile, **kw: Any
     ) -> ClassicTuner:
-        """Classic tuner on ``exposure_us``."""
-        return ClassicTuner(service, camera_id, label="linear", **kw)
+        """Classic tuner on ``exposure_us``; gain and white balance only where the mode lists
+        them as knobs (a mode without ``gain_db`` never gets gain: in ``raw_hdr`` gain is a
+        digital multiplier that only clips — fresh-agent test 2026-10-23)."""
+        return ClassicTuner(service, camera_id, label="linear", **_knob_limits(mode, kw))
 
 
 @STRATEGIES.register("prism")
@@ -95,7 +106,9 @@ class PrismStrategy(Strategy):
             raise InvalidRequestError(
                 f"prism wb_method must be 'gain' or 'exposure', not {method!r}"
             )
-        return ClassicTuner(service, camera_id, wb_method=method, label="prism", **kw)
+        return ClassicTuner(
+            service, camera_id, wb_method=method, label="prism", **_knob_limits(mode, kw)
+        )
 
 
 @STRATEGIES.register("hdr")

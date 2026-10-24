@@ -66,8 +66,17 @@ class SheetConditions(_Sheet):
     black_level_pct: float | None = None
 
 
+class SheetStep(_Sheet):
+    """One quantization regime: from this level (fraction of full scale) up, values step by
+    ``step_dn`` (one code of the HDR channel in use)."""
+
+    from_level: float = Field(ge=0, le=1)
+    step_dn: float = Field(gt=0)
+
+
 class SheetPerformance(_Sheet):
     conditions: SheetConditions = Field(default_factory=SheetConditions)
+    quantization: tuple[SheetStep, ...] = ()
     full_scale_dn: float | None = None
     black_dn: float | None = None
     read_noise_dn: float | None = None

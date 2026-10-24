@@ -198,7 +198,7 @@ def test_advanced_logged_in_run(svc: TwoDService) -> None:
 
 # --------------------------------------------------------- modes + tune
 def test_set_mode_applies_settings_and_scoring(svc: TwoDService) -> None:
-    assert svc.current_mode(SIM) is None
+    assert svc.current_mode(SIM) == "linear"  # recognised from the camera's settings
     res = svc.set_mode(SIM, "hdr")
     assert res.settings.advanced["hdr.enabled"] == "on" and svc.current_mode(SIM) == "hdr"
     assert svc.scoring_params(SIM).target_mean == 0.35  # mode scoring override
@@ -223,7 +223,16 @@ def test_set_mode_rejected_by_limits(
 
 def test_opening_does_not_change_mode(svc: TwoDService) -> None:
     assert svc.get_settings(SIM).settings.advanced["hdr.enabled"] == "off"
-    assert svc.current_mode(SIM) is None
+    # nothing was entered; the mode is recognised from the settings (a new process, e.g. each
+    # CLI call, must still use the active mode's scoring targets — fresh-agent test 2026-10-23)
+    assert svc.current_mode(SIM) == "linear"
+
+
+def test_mode_is_recognised_from_the_settings(svc: TwoDService) -> None:
+    svc.apply(SIM, CameraSettingsPatch(advanced={"hdr.enabled": "on"}))
+    svc._open[SIM].mode = None  # a new process: nothing entered
+    assert svc.current_mode(SIM) == "hdr"
+    assert svc.scoring_params(SIM).target_mean == 0.35  # that mode's scoring override
 
 
 @pytest.mark.parametrize(

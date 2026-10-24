@@ -8,7 +8,7 @@ characteristics:
   shutter: rolling          # live SensorShutterMode = Rolling: static scenes only
   colour: bayer             # BayerRG; RGB8 is debayered on the camera
   hdr_capable: true         # 4 HDR channels, each with its own exposure + analog gain
-  black_level: null         # not measured yet (scene was dark at the bench)
+  black_level: 0.0000024    # raw_hdr (BayerRG24, BlackLevel 1): ≈ 40 DN of 2^24 (measured 2026-10-23)
   notes:
     - "In HDR mode (HDRTuningEnable on) ExposureTime and Gain are read-only; tune the HDR channels instead."
     - "The manual only lists the HDR node names (HDR Control L2165); behaviour is being characterised at the bench."
@@ -16,10 +16,10 @@ characteristics:
 default_mode: raw_hdr
 
 # Preferred ranges (guidance for the tuner / setup / agent; never a hard limit).
-# HDR (Derek 2026-10-21): channel exposures only up to one frame at free-run
-# (47.95 ms at 20.8 fps, BayerRG8 full frame), so the frame rate never drops;
-# the HDR channel gains stay fixed (not knobs). Too dark at one frame → the setup
-# stops and asks for more light.
+# Exposure budget = one frame at the frame rate the job needs, which depends on the format:
+# raw_hdr (BayerRG24) runs at most 6.93 fps over GigE → one frame ≈ 144 ms; the 8-bit display
+# modes run at 20.8 fps → ≈ 48 ms. Longer exposures lower the frame rate. The HDR channel
+# gains stay fixed (not knobs). Too dark at the budget → ask for more light, never gain.
 working_range:
   exposure_us: {max: 200000}
   gain_db: {min: 0, max: 18}
@@ -67,9 +67,14 @@ modes:
         color.transformation: "off"
         black.level: 1.0
     knobs: [exposure_us]
+    # One brightness rule for this mode (tuner, capture scores, site tool, white paper):
+    # expose to the right — the highlights (99th percentile) at 80 % of full scale, never
+    # clipped. The SNR of this linear HDR output is best near the top (287 at 79 %).
     scoring:
-      target_mean: 0.10       # linear 24-bit HDR: the scene sits low, highlights keep headroom
+      level_metric: p99
+      target_mean: 0.80       # for level_metric p99: the highlights, not the mean
       clip_max_pct: 0.2
+      black_threshold: 0.000005   # ≈ 84 DN: in the noise floor of 24-bit data (black 40, σ 2.4)
   hdr:
     strategy: hdr
     description: >

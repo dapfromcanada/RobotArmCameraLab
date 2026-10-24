@@ -722,10 +722,28 @@ numbers into verdicts and actions by comparing them with that baseline.
   now pins gain 0, white balance 1/1/1 (BalanceRatio multiplies the raw data) and black
   level 1. Drivers: `load_user_set` (Arena, eBUS, sim). The JAI boots from User Set 1 with no
   boot-set feature, so the load on open is its only known start.
-  Still open from that list: CLI capture/score ignore mode scoring targets, `tune` cannot target
-  < 0.10, the black threshold makes no sense for 24-bit, one backup file per CLI call is
-  undocumented, `settings get` does not show the active mode, no non-interactive focus read,
-  `hdr.enhancement` / `hdr.clamping` and white balance on raw data undocumented.
+- **Second fresh-agent run (2026-10-23):** it reset first, kept gain 0, verified linearity
+  and gave the right verdict (≈ 9× more light). Its findings, fixed:
+  - the classic tuner only moves the mode's knobs (`raw_hdr`: exposure; never gain / white
+    balance) — it had raised gain to 1.2 dB;
+  - one brightness rule: scoring `level_metric` (`mean_level` | `p99`); `raw_hdr` judges the
+    highlights (p99 at 0.80, ≤ 0.2 % clipped, black threshold at the 24-bit noise floor); the
+    tuner, capture scores, site tool (p99) and white paper agree; tune targets 0.01–0.95;
+  - a new process recognises the active mode from the camera's settings (`current_mode`,
+    `scoring_params`): CLI capture/score use the mode's targets; `settings get` shows the mode;
+  - frame rate: an auto-lowered rate is recognised on the camera and raised to the fastest
+    that fits a shorter exposure (free-run when it fits); side-effect changes of exposure,
+    frame rate or gain are reported as warnings;
+  - `two-d verify` / MCP `verify_camera_state`: the white paper's state checks on the image
+    (design-mode settings, gain, linearity, no dark pixel at 0, finest shadow step in the first
+    quantization regime);
+  - site tool: linearity at E/2 and E (fits a tight budget), flicker bands in sensor rows,
+    light-stability check (daylight drift);
+  - `settings set --adv KEY=VALUE`; `--json` help says logs go to stderr; backups documented;
+  - white paper v11 "On site" section (sequence, which mode for what, the brightness rule, the
+    exposure budget per format, focus needs texture); profile comments and black level fixed.
+  Still open: the effective frame-rate maximum after a reset read 6.56 fps once (6.93 later);
+  no dry-run / no-save option.
 - **Next:**
   the "fresh agent" test (an agent with only camera_lab + the white paper sets the camera up).
 

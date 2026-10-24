@@ -34,7 +34,13 @@ app.add_typer(runs_app, name="runs")
 app.add_typer(profile_app, name="profile")
 app.add_typer(mode_app, name="mode")
 
-JsonOpt = Annotated[bool, typer.Option("--json", help="Machine-readable JSON on stdout.")]
+JsonOpt = Annotated[
+    bool,
+    typer.Option(
+        "--json",
+        help="Machine-readable JSON on stdout (log lines go to stderr; -q silences them).",
+    ),
+]
 CameraArg = Annotated[str, typer.Argument(help="Camera serial or alias (cameras.yaml).")]
 OWNER = "cli"
 
@@ -102,9 +108,11 @@ def settings_get(ctx: typer.Context, camera: CameraArg, json_out: JsonOpt = Fals
     svc = state(ctx).service(ctx)
     svc.open(camera, OWNER)
     view = svc.get_settings(camera).to_dict()
+    view["mode"] = svc.current_mode(camera)  # entered, or recognised from the settings
 
     def human() -> str:
-        lines = [f"{k:14s} {v}" for k, v in view["settings"].items()]
+        lines = [f"{'mode':14s} {view['mode'] or '(no profile mode matches)'}"]
+        lines += [f"{k:14s} {v}" for k, v in view["settings"].items()]
         lines.append("effective ranges:")
         for name, r in view["ranges"].items():
             if r["adjustable"]:
@@ -132,11 +140,21 @@ def settings_set(
     roi: Annotated[str | None, typer.Option("--roi", help="X,Y,W,H in pixels.")] = None,
     fps: Annotated[float | None, typer.Option("--fps", help="Frame rate, Hz.")] = None,
     trigger: Annotated[Trigger | None, typer.Option("--trigger")] = None,
+    adv: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--adv",
+            help="Advanced setting KEY=VALUE (repeatable), e.g. --adv black.level=1 "
+            "--adv hdr.output=HDR; the keys are listed by `settings get`.",
+        ),
+    ] = None,
     json_out: JsonOpt = False,
 ) -> None:
     """Apply validated changes; prints applied / clamped / rejected per field.
 
-    Exit code 4 if any field was rejected.
+    Exit code 4 if any field was rejected. Settings that change as a side effect (e.g. the
+    exposure shortened to fit a frame rate) are reported as warnings. The camera is backed
+    up before the first change of each command (config/camera_backups/<serial>/).
 
     Example: camera-lab --sim two-d settings set SIM-0001 --exposure-us 20000 --gain-db 3
     """
@@ -154,6 +172,17 @@ def settings_set(
     if roi is not None:
         x, y, w, h = parse_ints(roi, 4, "--roi")
         fields["roi"] = ROI(x=x, y=y, width=w, height=h)
+    if adv:
+        advanced: dict[str, Any] = {}
+        for item in adv:
+            key, sep, raw = item.partition("=")
+            if not sep or not key.strip():
+                raise typer.BadParameter(f"--adv needs KEY=VALUE, got {item!r}")
+            try:
+                advanced[key.strip()] = float(raw)
+            except ValueError:
+                advanced[key.strip()] = raw.strip()
+        fields["advanced"] = advanced
     patch = CameraSettingsPatch(**{k: v for k, v in fields.items() if v is not None})
     if not patch.changed_fields():
         raise typer.BadParameter("nothing to set; give at least one setting option")
@@ -626,6 +655,29 @@ def reset_cmd(
         f"white balance {s.get('white_balance')}"
     )
     typer.echo(f"  backup before: {out['backup_before']}")
+
+
+@app.command("verify")
+@handle_errors
+def verify_cmd(ctx: typer.Context, camera: CameraArg) -> None:
+    """Verify the camera's state on whatever it sees (the white paper's checks).
+
+    Design-mode settings in place, gain as in the baseline, linear output (× 2.00 per
+    exposure doubling), no dark pixel clipped at 0, finest shadow step 1 DN. Changes
+    nothing (the exposure is put back after the linearity test).
+
+    Example: camera-lab two-d verify triton
+    """
+    from camera_lab.two_d.site.verify import verify_camera
+
+    svc = state(ctx).service(ctx)
+    svc.open(camera, OWNER)
+    checks = verify_camera(svc, camera, actor="human")
+    marks = {"pass": "ok  ", "warn": "WARN", "fail": "FAIL", "info": "info"}
+    for c in checks:
+        typer.echo(f"[{marks[c.status]}] {c.name}: {c.message}")
+        if c.action:
+            typer.echo(f"         → {c.action}")
 
 
 # -------------------------------------------------------------- site light

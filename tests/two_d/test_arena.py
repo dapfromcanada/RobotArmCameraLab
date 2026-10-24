@@ -719,3 +719,21 @@ def test_identity_nodes(cam: ArenaCamera) -> None:
     nodes = cam.identity_nodes()
     assert nodes["DeviceFirmwareVersion"] == "1.138.0.0" == cam.info.firmware
     assert nodes["DeviceVersion"] == "K7A4W"
+
+
+def test_auto_lowered_frame_rate_follows_a_shorter_exposure(cam: ArenaCamera) -> None:
+    """Fresh-agent test 2026-10-23: 200 → 150 ms in a new CLI process left the rate low."""
+    from camera_lab.two_d.drivers.arena import FRAME_OVERHEAD_US
+
+    long_us = 1e6 / cam._fps_nodes()[1].max * 3  # three free-run frames: the rate must drop
+    cam.apply(CameraSettingsPatch(exposure_us=long_us))
+    low = cam.get_settings().frame_rate_hz
+    assert low is not None and low < cam._fps_nodes()[1].max
+    cam._auto_fps = False  # a new process does not remember lowering it
+    shorter = long_us * 0.75
+    res = cam.apply(CameraSettingsPatch(exposure_us=shorter))
+    fastest = 1e6 / (shorter + FRAME_OVERHEAD_US)
+    assert cam.get_settings().frame_rate_hz == pytest.approx(fastest, rel=0.01)
+    assert any("frame rate raised" in w for w in res.warnings)
+    cam.apply(CameraSettingsPatch(exposure_us=1000.0))  # fits a free-run frame again
+    assert not cam._fps_nodes()[0].value  # free-run restored

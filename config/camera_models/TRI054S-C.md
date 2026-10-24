@@ -1,4 +1,4 @@
-# Lucid Triton TRI054S-C — camera white paper (DRAFT v10, 2026-10-23)
+# Lucid Triton TRI054S-C — camera white paper (DRAFT v12, 2026-10-24: fingerprint 20261024T084539Z, 3 runs per measurement)
 
 What this camera is, how it works, how it behaves and how well it performs, measured on the
 camera_lab bench. Machine-readable twin: `TRI054S-C.yaml`.
@@ -18,6 +18,37 @@ into one linear 24-bit image — measured **137 dB (22.7 stops)** of dynamic ran
 datasheet's > 120 dB — so very bright and very dark areas are captured in a single exposure. It has a rolling shutter. Out of the
 box the camera applies a gamma-0.5 lookup table, which makes its output non-linear; its
 linear raw data needs that table switched off. [manual], [measured 2026-10-22]
+
+### On site (no test bench): the sequence and the rules
+1. **Start from a known state:** `camera-lab two-d reset <camera>` (MCP `reset_camera`):
+   factory Default, then the design mode with all its settings, every one read back.
+2. **Prove the state on the image:** `two-d verify` (MCP `verify_camera_state`): design-mode
+   settings in place, gain 0 dB, linear (× 2.00 per exposure doubling), no dark pixel at 0,
+   finest shadow step 1 DN.
+3. **Judge the light:** `two-d assess-light` (MCP `assess_site_light`): flicker, enough light,
+   SNR against §6, clipping, distribution, light stability — each with an action.
+4. **Set the exposure:** `two-d tune <camera> --mode raw_hdr` (exposure is the only knob;
+   gain and white balance are never touched in this mode), or the exposure assess-light
+   recommends.
+5. **Focus** is a human job at the lens: it needs texture in view (a chart, print, or any
+   sharp edge); `two-d setup` shows the live MTF50. A featureless scene cannot be judged.
+
+**Which mode for what:** `raw_hdr` (linear 24-bit, § 3) for everything a machine measures or
+detects, and for production images that software processes. `hdr` / `linear` (factory LUT,
+gamma 0.5, 8/12-bit) only for a human looking at the picture.
+
+**One brightness rule (`raw_hdr`):** expose to the right — the highlights (99th percentile)
+at about **80 % of full scale**, never clipped (≤ 0.2 % of pixels). The SNR is best near the
+top (§ 6); the mean of an HDR scene then sits wherever the scene puts it. The tuner, the
+capture scores (`level_metric: p99`), the site tool and this paper all use this rule.
+
+**Exposure budget:** one frame at the frame rate the job needs. In `raw_hdr` (BayerRG24) the
+camera runs at most 6.93 fps (GigE bandwidth) → one frame ≈ 144 ms; longer exposures lower the
+frame rate (camera_lab raises it back as the exposure shortens). 8-bit modes: 20.8 fps ≈ 48 ms.
+Too dark within the budget → more light (or a wider iris), never gain.
+
+**Files:** every command that changes settings first backs the camera up
+(`config/camera_backups/<serial>/`); captures, runs and reports go under the data folder.
 
 ## 2. Architecture and signal path
 | stage | what happens | notes |
@@ -111,7 +142,7 @@ transformation off: keep it at 1.0 and balance colour on the PC. [measured 2026-
 ## 5. Timing
 | | value | source |
 |---|---|---|
-| frame rate, full frame | 20.8 fps BayerRG8; **6.93 fps BayerRG24** (the linear HDR output: 16 MB per frame fills GigE at ≈ 111 MB/s — use an ROI for more speed); other formats **[to measure]** | [measured 2026-10-21/23] |
+| frame rate, full frame | 8-bit (Mono8 / BayerRG8) 20.8 fps · 12p 13.9 · 16-bit 10.4 · **24-bit (BayerRG24 / Mono24) and RGB8 6.93** · RGB12p 4.6 · RGB16 3.5 — GigE bandwidth (≈ 111 MB/s); use an ROI for more speed | [fingerprint 2026-10-24] |
 | exposure vs frame rate | 61 ms → 16 fps, 122 ms → 8 fps, 244 ms → 4 fps | [measured 2026-10-21] |
 | shutter | rolling: rows are exposed one after another over one readout (≈ one frame period) | [manual] |
 | row (line) time | ≈ 23.5 µs per sensor row → ≈ 44 ms to read a full frame top to bottom | [measured 2026-10-23, from 120 Hz flicker bands] |
@@ -124,21 +155,22 @@ Full scale = 2²⁴ − 1 = 16 777 215 DN. "Runs" = how many measurement runs th
 
 | property | value | fraction of full scale | runs / units | source |
 |---|---|---|---|---|
-| black level | ≈ 40 DN (BlackLevel 1); ≈ 0.7 DN at BlackLevel 0, noise clipped | 0.00024 % | 1 / 1 | [measured 2026-10-23] |
-| read noise (dark, temporal) | **2.4 DN** at 1–10 ms, 3.3 DN at 100 ms | 0.000014 % | 1 / 1 | [measured 2026-10-23] |
-| row noise (temporal, dark) | 0.3 DN rms, independent of exposure (≈ 1/8 of the pixel noise) | | 1 / 1 | [measured 2026-10-23] |
+| black level | ≈ 40 DN at BlackLevel 1 (204.6 DN at BlackLevel 5); ≈ 0.7 DN at BlackLevel 0, noise clipped | 0.00024 % | 3 / 1 (spread 0.09 %) | [fingerprint 2026-10-24] |
+| read noise (dark, temporal) | **2.43 DN** at 1–10 ms (3.3 DN at 100 ms) | 0.000014 % | 3 / 1 (spread 0.95 %) | [fingerprint 2026-10-24] |
+| row noise (temporal, dark) | 0.32 DN rms (≈ 1/8 of the pixel noise) | | 1 / 1 | [fingerprint 2026-10-24] |
 | DSNU | 0.6 DN at 1–10 ms, 1.0 DN at 100 ms | | 1 / 1 | [measured 2026-10-23] |
-| **dynamic range** (saturation ÷ read noise) | **137 dB (22.7 stops)**, 134 dB at 100 ms — above the datasheet's > 120 dB | | 1 / 1 | [measured 2026-10-23] |
-| saturation | the full 2²⁴ scale is reached (sensor limit, not a digital clip) | 100 % | 1 / 1 | [measured 2026-10-23] |
-| dark current | ≈ 0 (black 40.7 → 40.3 DN from 1 to 100 ms) | | 1 / 1 | [measured 2026-10-23] |
-| linearity error | 0.24 % of range | | 1 / 1 | [measured 2026-10-22, at 28.6 dB; gain-independent] |
-| pixel response non-uniformity | 1.3 % | | 1 / 1 | [measured 2026-10-22; gain-independent] |
-| vignetting | corners 0.90 of centre (lens- and iris-dependent) | | 1 / 1 | [measured 2026-10-22] |
-| SNR vs signal level | **not monotonic** — see the curve below | | 1 / 1 | [measured 2026-10-23] |
-| noise model σ² = a + b·signal | per channel regime **[to measure]** | | | |
-| colour: R/G, B/G, green imbalance | **[to measure]** under the bench light (DC LED floods) | | | |
-| run-to-run spread | **[to measure]** (3 runs per measurement) | | | |
-| hot pixels | unit-specific (fingerprint per serial) | | | |
+| **dynamic range** (saturation ÷ read noise) | **137 dB (22.7 stops)** — above the datasheet's > 120 dB | | 3 / 1 | [fingerprint 2026-10-24] |
+| saturation | the full 2²⁴ scale (sensor limit, not a digital clip) | 100 % | | [measured 2026-10-23] |
+| dark current | 0 DN/s (lens cap under full floods: the cap is light-tight) | | 3 / 1 | [fingerprint 2026-10-24] |
+| linearity error | **0.10 %** of range | | 3 / 1 | [fingerprint 2026-10-24] |
+| peak SNR (flat, near full scale) | **312** | | 3 / 1 | [fingerprint 2026-10-24] |
+| pixel response non-uniformity | **1.26 %** (R 1.41, Gr 1.26, Gb 1.29, B 1.59 %) | | 3 / 1 (spread ≤ 1.5 %) | [fingerprint 2026-10-24] |
+| vignetting | corners 0.88 of centre (Kowa 8 mm f/1.4; lens- and iris-dependent) | | 3 / 1 | [fingerprint 2026-10-24] |
+| colour under the bench floods (white LED) | **R/G 0.55, B/G 0.60** — a white-balance starting point (red × 1.82, blue × 1.67 on the PC); green imbalance Gr − Gb **+0.63 %** | | 3 / 1 (spread 0.1 %) | [fingerprint 2026-10-24] |
+| SNR vs signal level | **not monotonic** — see the curve below | | | [measured 2026-10-23, confirmed 2026-10-24] |
+| noise model σ² = a + b·signal | per HDR channel regime: see § 7 (gain DN/e⁻, read noise) | | | |
+| hot pixels | unit-specific: 449 on 233100505 (8 σ, 100 ms, BlackLevel 5) | | | [fingerprint 2026-10-24] |
+| flicker under the bench floods | adds 0.3 % to the noise at ≥ 2 ms (limit 2 %) | | | [fingerprint 2026-10-24] |
 
 ### SNR and effective resolution vs signal level (Gain 0 dB) [measured 2026-10-23, one run]
 | level (% of full scale) | quantization step | channel in use | temporal noise σ | SNR |
@@ -169,15 +201,18 @@ Full scale = 2²⁴ − 1 = 16 777 215 DN. "Runs" = how many measurement runs th
   findings were taken that way).
 
 ## 7. The four HDR channels
-| channel | sub-pixel / conversion gain | sensitivity vs ch3 | gain DN/e⁻ | full well e⁻ | read noise DN |
-|---|---|---|---|---|---|
-| ch0 | large, high (most sensitive) | ≈ 5700× (20× ch1, from the 0 dB quantization steps) | **[to measure]** | **[to measure]** | 67 |
-| ch1 | large, low | ≈ 280× (7.8× ch2) | 27.0* | 145* | 20 |
-| ch2 | small, high | ≈ 36× | 26.8–27.3* | 143* | 231 |
-| ch3 | small, low (carries the highlights) | 1× | 0.08 or 0.72* | 48 840 or 5 427* | 71 |
+| channel | sub-pixel / conversion gain | sensitivity vs ch3 | gain DN/e⁻ | full well e⁻ | read noise (dark) | repeat (3 runs) |
+|---|---|---|---|---|---|---|
+| ch0 | large, high (most sensitive) | ≈ 5700× (20× ch1) | **[to measure]**: needs ≈ 15× less light than f/16 (ND filter) | | 2.49 DN | |
+| ch1 | large, low | ≈ 280× (7.8× ch2) | **0.246** | **15 808** | 0.74 DN = 3.0 e⁻ | 0.0 % |
+| ch2 | small, high | ≈ 36× | **0.709** | **5 490** | 11.2 DN = 15.9 e⁻ (PTC 15.3 e⁻) | 0.3 % |
+| ch3 | small, low (carries the highlights) | 1× | **0.0254** | **150 149** | 2.62 DN = 103 e⁻ | 1.6 % |
 
-\* Measured under flickering light at short exposures (2026-10-22): not reliable; to be
-re-measured with the floods recipe (f/1.4 ch3, f/8 ch2, f/16 ch1, ≥ 2 ms).
+Measured on each channel's own 12-bit output (`HDROutput = HDRChannelN`), BlackLevel 5, under the
+DC floods at ≥ 2 ms: ch3 at f/1.4, ch2 at f/8, ch1 at f/16 (fingerprint 2026-10-24). Linearity
+error ≤ 0.19 % on every channel. The 2026-10-22 numbers (ch3 0.08 or 0.72, ch1 ≈ ch2) were
+flicker-contaminated (dimmed panels, 0.1–3 ms exposures) and are withdrawn. Channel 3's
+150 ke⁻ full well matches the combined output's best SNR (312 ≈ shot noise of ~100 ke⁻).
 
 The sensitivities span ≈ 6000× from ch3 to ch0 (≈ 76 dB), which is how the merged image
 reaches its dynamic range: ch0 resolves the shadows, ch3 the highlights. Ratios measured two
@@ -194,8 +229,9 @@ than a Kowa 8 mm at f/16 under bright diffuse light): an ND filter or extra diff
 - **Rolling shutter:** a subject moving during the exposure and readout is skewed (≈ 44 ms
   from the top row to the bottom row).
 - **Light ripple becomes row bands.** Any light whose intensity ripples faster than the
-  exposure shows as horizontal bands that move between frames. The band period in rows ×
-  23.5 µs = the ripple period. Measured on the bench: dimmed LED panels 120 Hz (≈ 354 sensor
+  exposure shows as horizontal bands that move between frames. The band period in **sensor
+  rows** × 23.5 µs = the ripple period (one Bayer colour plane has half as many rows; the
+  site tool reports sensor rows). Measured on the bench: dimmed LED panels 120 Hz (≈ 354 sensor
   rows per cycle; bands 2–3 % of the signal at 0.5–4 ms, gone at 8.3 ms = one mains half-cycle),
   "DC" LED floods ≈ 4 kHz (≈ 10 rows; 8 % at 0.1 ms, < 0.3 % from 2 ms). An exposure that is
   a whole number of ripple periods cancels it; longer exposures average it.
@@ -237,12 +273,10 @@ than a Kowa 8 mm at f/16 under bright diffuse light): an ND filter or extra diff
 | settling | change exposure, grab 3 frames | 0 stale frames |
 
 ## 11. Open questions
-- **Light level differs between bench days** (3.6× at the same dimmer setting): the
-  absolute exposures above are for that day's light only; ratios and the SNR curve hold.
-- **HDR channel outputs:** ch3 photon transfer differs 9× between two runs and ch1 and ch2
-  look identical, although they should differ. The 12-bit channel outputs may be scaled
-  inside the camera. The merged 24-bit output is not affected.
+- **Channel 0 photon transfer:** needs ≈ 15× less light than a Kowa 8 mm at f/16 under the
+  floods (an ND filter or extra diffusion).
 - Temperature behaviour: not measured (operating range −20 to 55 °C ambient [manual]).
+- The effective frame-rate maximum read 6.56 fps once right after a reset (6.93 otherwise).
 
 ## 12. Test conditions and sources
 - Bench: white board lit by two LED panels (10-step dimmers), opal acrylic diffuser on the

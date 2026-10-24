@@ -38,7 +38,7 @@ import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import cv2
 import numpy as np
@@ -80,6 +80,9 @@ class ScoringParams(_Frozen):
     """Targets and thresholds for one scoring run."""
 
     target_mean: float = Field(default=0.45, gt=0, lt=1)
+    #: what "brightness" means for the exposure score and the tuner: the mean level, or the
+    #: highlights (99th percentile: "expose to the right" for linear / HDR data)
+    level_metric: Literal["mean_level", "p99"] = "mean_level"
     tolerance: float = Field(default=0.25, gt=0, le=1)
     mean_pass_band: float = Field(default=0.05, gt=0, le=1)
     clip_max_pct: float = Field(default=1.0, gt=0, le=100)
@@ -93,6 +96,7 @@ class ScoringParamsOverride(_Frozen):
     """Partial override (per camera or per tag); unset fields keep the base value."""
 
     target_mean: float | None = Field(default=None, gt=0, lt=1)
+    level_metric: Literal["mean_level", "p99"] | None = None
     tolerance: float | None = Field(default=None, gt=0, le=1)
     mean_pass_band: float | None = Field(default=None, gt=0, le=1)
     clip_max_pct: float | None = Field(default=None, gt=0, le=100)
@@ -234,7 +238,7 @@ def histogram(luma: npt.NDArray[np.float64]) -> tuple[float, ...]:
 def sub_scores(metrics: Mapping[str, float], p: ScoringParams) -> dict[str, float]:
     """The four composite factors, each in [0, 1]."""
     return {
-        "exposure": 1.0 - min(1.0, abs(metrics["mean_level"] - p.target_mean) / p.tolerance),
+        "exposure": 1.0 - min(1.0, abs(metrics[p.level_metric] - p.target_mean) / p.tolerance),
         "clipping": max(0.0, 1.0 - metrics["clipped_pct"] / p.clip_max_pct),
         "black": max(0.0, 1.0 - metrics["black_pct"] / p.black_max_pct),
         "noise": max(0.0, 1.0 - metrics["noise_sigma"] / p.noise_max),

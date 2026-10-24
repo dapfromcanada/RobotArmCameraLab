@@ -304,6 +304,8 @@ class TwoDService:
         serial = self.cameras.resolve(camera_id) if camera_id else None
         params = self.scoring.resolve(serial)
         oc = self._open.get(serial) if serial else None
+        if oc is not None and oc.mode is None and serial is not None:
+            oc.mode = self._infer_mode(serial)
         if oc is not None and oc.mode is not None and serial is not None:
             _, mode = self.get_profile(serial).mode(oc.mode)
             params = params.model_copy(update=mode.scoring.model_dump(exclude_none=True))
@@ -535,6 +537,53 @@ class TwoDService:
         _, oc = self._require_open(camera_id)
         return oc.camera.user_set_info()
 
+    def mode_mismatches(self, camera_id: str, mode: str | None = None) -> list[str]:
+        """The settings of profile ``mode`` the camera does not have now (empty = in the mode).
+        Values within the camera's rounding (1 %) count as equal."""
+        serial, _ = self._require_open(camera_id)
+        _, prof = self.get_profile(serial).mode(mode)
+        now = self.get_settings(serial).settings
+        want = prof.settings
+
+        def near(a: float, b: float) -> bool:  # cameras round to their own increments
+            return abs(a - b) <= max(1e-3, 0.01 * abs(b))
+
+        out: list[str] = []
+        for name in ("pixel_format", "gain_db", "exposure_us", "frame_rate_hz", "trigger_mode"):
+            w, have = getattr(want, name), getattr(now, name)
+            close = isinstance(w, float) and have is not None and near(float(have), w)
+            if w is not None and have != w and not close:
+                out.append(f"{name}: wanted {w}, camera has {have}")
+        for ch, wv in (want.white_balance or {}).items():
+            got = (now.white_balance or {}).get(ch)
+            if got is None or not near(got, wv):
+                out.append(f"white_balance.{ch}: wanted {wv}, camera has {got}")
+        for key, wa in (want.advanced or {}).items():
+            cur = now.advanced.get(key)
+            same = (
+                near(float(cur), float(wa))
+                if isinstance(wa, int | float) and isinstance(cur, int | float)
+                else cur == wa
+            )
+            if not same:
+                out.append(f"{key}: wanted {wa}, camera has {cur}")
+        return out
+
+    def _infer_mode(self, serial: str) -> str | None:
+        """The profile mode whose settings the camera has now (the default mode first): a new
+        process (each CLI call) did not enter it itself but must still use its targets."""
+        prof = self.get_profile(serial)
+        order = [prof.default_mode, *(m for m in prof.modes if m != prof.default_mode)]
+        for name in order:
+            if not prof.modes[name].settings.changed_fields():
+                continue  # a mode that sets nothing cannot be recognised
+            try:
+                if not self.mode_mismatches(serial, name):
+                    return name
+            except Exception:  # pragma: no cover - a camera that cannot report settings
+                return None
+        return None
+
     def reset_camera(
         self, camera_id: str, mode: str | None = None, actor: Actor = "human"
     ) -> dict[str, Any]:
@@ -555,33 +604,9 @@ class TwoDService:
             raise InvalidRequestError(str(exc)) from None
         oc.mode = None
         result = self.set_mode(serial, mode, actor)
-        mode_name, prof = self.get_profile(serial).mode(mode)
+        mode_name, _ = self.get_profile(serial).mode(mode)
         now = self.get_settings(serial).settings
-
-        def near(a: float, b: float) -> bool:  # cameras round to their own increments
-            return abs(a - b) <= max(1e-3, 0.01 * abs(b))
-
-        want = prof.settings
-        mismatches: list[str] = []
-        for name in ("pixel_format", "gain_db", "exposure_us", "frame_rate_hz", "trigger_mode"):
-            w, have = getattr(want, name), getattr(now, name)
-            close = isinstance(w, float) and near(float(have), w)
-            if w is not None and have != w and not close:
-                mismatches.append(f"{name}: wanted {w}, camera has {have}")
-        if want.white_balance:
-            for ch, w in want.white_balance.items():
-                got = (now.white_balance or {}).get(ch)
-                if got is None or not near(got, w):
-                    mismatches.append(f"white_balance.{ch}: wanted {w}, camera has {got}")
-        for key, wa in (want.advanced or {}).items():
-            cur = now.advanced.get(key)
-            same = (
-                near(float(cur), float(wa))
-                if isinstance(wa, int | float) and isinstance(cur, int | float)
-                else cur == wa
-            )
-            if not same:
-                mismatches.append(f"{key}: wanted {wa}, camera has {cur}")
+        mismatches = self.mode_mismatches(serial, mode_name)
         _log.info(
             "camera_reset",
             camera_id=serial,
@@ -838,6 +863,18 @@ class TwoDService:
             warnings.extend(dres.warnings)
         else:
             after = before
+        # Side effects: a setting that was not asked for but changed with the others (e.g. the
+        # camera shortens the exposure to fit a higher frame rate) is reported, not silent.
+        asked = set(patch.changed_fields())
+        for name, unit in (("exposure_us", "µs"), ("frame_rate_hz", "Hz"), ("gain_db", "dB")):
+            b, a2 = getattr(before, name), getattr(after, name)
+            moved = (
+                b is not None
+                and a2 is not None
+                and abs(float(a2) - float(b)) > max(1e-6, 1e-3 * abs(float(b)))
+            )
+            if name not in asked and moved:
+                warnings.append(f"{name} changed from {b:g} to {a2:g} {unit} as a side effect")
         # Re-read the ranges: a format/ROI/frame-rate change moves the camera's limits.
         after_ranges = self._spec_ranges(oc.limits, cam.capabilities()) if accepted else ranges
         warnings.extend(self._readback_warnings(after, after_ranges))
@@ -1395,8 +1432,11 @@ class TwoDService:
         return self._profiles[serial]
 
     def current_mode(self, camera_id: str) -> str | None:
-        """The mode entered in this session (``None`` if none was set)."""
-        _, oc = self._require_open(camera_id)
+        """The mode entered in this session, or the profile mode the camera's settings match
+        (``None`` if neither)."""
+        serial, oc = self._require_open(camera_id)
+        if oc.mode is None:
+            oc.mode = self._infer_mode(serial)
         return oc.mode
 
     def set_mode(

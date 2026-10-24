@@ -108,7 +108,7 @@ def test_never_touches_lights(svc: TwoDService, sim_light: SimulatedLight) -> No
 
 
 @pytest.mark.parametrize(
-    ("kw"), [{"target_mean": 0.05}, {"target_mean": 0.95}, {"clip_limit_pct": 0}]
+    ("kw"), [{"target_mean": 0.005}, {"target_mean": 0.99}, {"clip_limit_pct": 0}]
 )
 def test_bad_arguments(svc: TwoDService, kw: dict[str, float]) -> None:
     with pytest.raises(InvalidRequestError):

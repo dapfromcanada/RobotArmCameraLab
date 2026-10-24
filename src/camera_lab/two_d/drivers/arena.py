@@ -320,7 +320,9 @@ class ArenaCamera(Camera2D):
                 ("StreamBufferHandlingMode", "NewestOnly"),
             ):
                 node = tl.get_node(name)
-                if node is not None:
+                # not writable while streaming (GUI live view, 2026-10-24): they were set at
+                # open and the stream keeps them, so skipping here changes nothing
+                if node is not None and self._attr(node, "is_writable") is not False:
                     node.value = value
             fmt = self._node("PixelFormat")
             if fmt is not None and fmt.value not in SUPPORTED_FORMATS:
@@ -792,10 +794,23 @@ class ArenaCamera(Camera2D):
                 f"frame rate lowered to {float(rate.value):.3f} Hz to allow exposure {value} us"
             )
             return result
+        prev = float(node.value) if node is not None else None
+        auto = self._auto_fps or self._rate_was_auto(prev)
         result = self._set_number(field, node_name, value)
-        if allow_restore and self._auto_fps and result.status != "rejected":
+        if allow_restore and auto and result.status != "rejected":
             self._restore_free_run(value, warnings)
         return result
+
+    def _rate_was_auto(self, exposure: float | None) -> bool:
+        """Is the frame rate the one camera_lab lowers to for ``exposure``? A new process (each
+        CLI call) does not remember lowering it, but the camera keeps it (fresh-agent test
+        2026-10-23: 200 → 150 ms left 4.99 fps). A rate the user chose is left alone."""
+        fps = self._fps_nodes()
+        if fps is None or exposure is None or not fps[0].value:
+            return False
+        rate = fps[1]
+        auto = min(float(rate.max), max(float(rate.min), 1e6 / (exposure + FRAME_OVERHEAD_US)))
+        return abs(float(rate.value) - auto) <= 0.01 * auto
 
     def _longest_exposure(self) -> float | None:
         """The exposure that sets the frame period: HDR channels with HDR on, else ExposureTime."""
@@ -819,7 +834,17 @@ class ArenaCamera(Camera2D):
             self._auto_fps = False
             return
         if longest > 1e6 / float(rate.max) - FRAME_OVERHEAD_US:
-            self._auto_fps = True  # still needs the lowered rate; restore when it shortens
+            # still needs a lowered rate: the fastest that fits this exposure
+            fastest = min(float(rate.max), 1e6 / (longest + FRAME_OVERHEAD_US))
+            if float(rate.value) < fastest * 0.999:
+                with self._fps_writable(en):
+                    rate.value = fastest
+                if warnings is not None:
+                    warnings.append(
+                        f"frame rate raised to {float(rate.value):.3f} Hz (fastest for "
+                        f"exposure {longest:.0f} us)"
+                    )
+            self._auto_fps = True  # restore free-run when it shortens further
             return
         with self._fps_writable(en):
             en.value = False
@@ -1038,7 +1063,8 @@ class ArenaCamera(Camera2D):
                 raise ValueError(f"camera has no user set {slot!r}")
             sel.value = slot
             self._nm.get_node("UserSetLoad").execute()
-        self.configure_on_open()
+            # inside the paused window: some of it is stream-locked (GUI live view, 2026-10-24)
+            self.configure_on_open()
         return {"slot": slot, "notes": ["open-time setup re-applied (autos off)"]}
 
     def identity_nodes(self) -> dict[str, str]:

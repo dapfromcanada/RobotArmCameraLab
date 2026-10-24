@@ -187,8 +187,8 @@ class ClassicTuner:
     ) -> None:
         params = service.scoring_params(camera_id)
         if target_mean is not None:
-            if not 0.1 <= target_mean <= 0.9:
-                raise InvalidRequestError("target_mean must be within 0.1..0.9")
+            if not 0.01 <= target_mean <= 0.95:
+                raise InvalidRequestError("target_mean must be within 0.01..0.95")
             params = params.model_copy(update={"target_mean": float(target_mean)})
         if not 0 < clip_limit_pct <= 100:
             raise InvalidRequestError("clip_limit_pct must be within (0, 100]")
@@ -331,7 +331,7 @@ class ClassicTuner:
             while True:
                 cap = self._capture(run.run_id)
                 s = cap.settings
-                mean = cap.scores.metric("mean_level")
+                mean = cap.scores.metric(self.params.level_metric)
                 clipped = cap.scores.metric("clipped_pct")
                 captures.append((cap.capture_id, cap.scores.composite))
                 history.append(
@@ -379,7 +379,12 @@ class ClassicTuner:
                 bright = self._too_bright(mean, clipped)
                 if not bright and exp >= e_max * 0.999:
                     if not self.use_gain or gain >= g_max - 1e-9:
-                        message = "too dark at maximum exposure and gain: needs more light"
+                        message = (
+                            "too dark at maximum exposure and gain: needs more light"
+                            if self.use_gain
+                            else "too dark at maximum exposure (gain is not a knob of this "
+                            "mode): needs more light"
+                        )
                         stop_reason = "too_dark"
                         break
                     need = 20 * math.log10(self.params.target_mean / max(mean, 1e-6))
@@ -484,7 +489,7 @@ class ClassicTuner:
             )
         self._apply(patch)
         cap = self._capture(run_id)
-        mean = cap.scores.metric("mean_level")
+        mean = cap.scores.metric(self.params.level_metric)
         clipped = cap.scores.metric("clipped_pct")
         captures.append((cap.capture_id, cap.scores.composite))
         history.append(

@@ -105,6 +105,7 @@ Workflow
    strategy and the `knobs` (settings) that make sense to change in that mode.
    reset_camera(camera_id): ALWAYS first — factory Default, then the design mode, every
    setting read back. Never trust the state a camera booted with.
+   verify_camera_state(camera_id): the white paper's state checks on the live image.
    get_camera_white_paper(camera_id): the camera model's bench white paper — how it works,
    its quirks, measured performance and how to check its state. Read it first.
    assess_site_light(camera_id): checks the light on the real scene against that baseline
@@ -126,7 +127,8 @@ Scores (0–1 levels of the pixel format's full scale; scoring.yaml)
 - noise_sigma: estimated noise; keep ≤ {sp.noise_max}.
 - sharpness: focus measure, compare only within one camera/scene; not in the composite.
 - composite 0–100 = 100 × exposure × clipping × black × noise sub-scores. Higher is better.
-A camera mode may override these targets (e.g. HDR modes use a lower mean target).
+A camera mode may override these targets: linear HDR modes (e.g. raw_hdr) judge brightness by the
+highlights (level_metric p99, target 0.80, never clipped) — see the camera's white paper.
 
 Limits (safety_limits.yaml, read-only — see get_safety_limits)
 - Camera exposure, gain and frame rate: only the camera's own range limits them. Stay inside the
@@ -503,6 +505,22 @@ def create_server(
         return body()
 
     @server.tool(structured_output=False)
+    def verify_camera_state(camera_id: CameraId) -> Any:
+        """Verify the camera's state on whatever it sees: the design mode's settings in place,
+        gain as in the model's baseline, linear output (x2.00 per exposure doubling), no dark
+        pixel clipped at 0, finest shadow step 1 DN. Changes nothing lasting."""
+
+        @guarded("verify_camera_state")
+        def body(state: AppState) -> dict[str, Any]:
+            from camera_lab.two_d.site.verify import verify_camera
+
+            serial = _ensure_open(state, camera_id)
+            checks = verify_camera(state.service, serial, actor=ACTOR)
+            return _ok(checks=[c.model_dump(mode="json") for c in checks])
+
+        return body()
+
+    @server.tool(structured_output=False)
     def get_camera_white_paper(camera_id: CameraId) -> Any:
         """The camera model's white paper (what it is, how it behaves, measured performance,
         diagnostics) and its machine-readable sheet. Read it before setting up a camera."""
@@ -622,6 +640,7 @@ TOOL_NAMES: tuple[str, ...] = (
     "finish_tuning_run",
     "run_classic_tune",
     "reset_camera",  # added 2026-10-23 (live settings only, backed up) — pending Derek's review
+    "verify_camera_state",  # added 2026-10-23 (exposure briefly, put back) — pending Derek's review
     "get_camera_white_paper",  # added 2026-10-23 (read-only) — pending Derek's review
     "assess_site_light",  # added 2026-10-23 (camera changes, restored) — pending Derek's review
     "list_presets",

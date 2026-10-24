@@ -54,7 +54,8 @@ FRAME_FLICKER_FAIL_PCT = 5.0
 SNR_WARN = 0.6  # measured / expected SNR below this → noisier than the model should be
 CLIP_WARN_PCT, CLIP_FAIL_PCT = 0.5, 5.0
 HIGHLIGHT_TARGET = 0.80  # expose to the right: the scene's highlights (p99.5) here
-HIGHLIGHT_PCT = 99.5
+HIGHLIGHT_PCT = 99.0  # the same rule as the raw_hdr scoring (level_metric p99)
+LIGHT_DRIFT_WARN = 0.05  # light level change between the start and the end of the check
 GAIN_TOLERANCE_DB = 0.1
 MAINS_HZ = (100.0, 120.0)
 MAINS_TOLERANCE = 0.12
@@ -114,6 +115,7 @@ class _Assessment:
         self.full = 0.0
         self.black = 0.0
         self.budget = 0.0  # longest exposure allowed (µs)
+        self.rate0: float | None = None  # mean level per µs at the start (light drift)
 
     # ---------------------------------------------------------- helpers
     def plane(self) -> npt.NDArray[np.float64]:
@@ -192,7 +194,7 @@ class _Assessment:
             if LINEAR_LO <= lvl <= LINEAR_HI:
                 break
             factor = 0.15 / max(lvl, 1e-4) if lvl < 0.98 else 0.25
-            top = min(hi, self.budget or hi) / 2  # E and 2E both within the budget
+            top = min(hi, self.budget or hi)  # E/2 and E are both within the budget
             exp = self.set_exposure(min(top, max(lo, exp * min(max(factor, 0.1), 50))))
             img = self.plane()
         lvl = self.level(img)
@@ -208,13 +210,14 @@ class _Assessment:
                 )
             )
             return exp if 0.01 < lvl < 0.98 else None
-        a = np.mean([self.plane() for _ in range(2)], axis=0)
-        exp2 = self.set_exposure(exp * 2)
-        b = np.mean([self.plane() for _ in range(2)], axis=0)
+        b = np.mean([self.plane() for _ in range(2)], axis=0)  # at E
+        half = self.set_exposure(exp / 2)
+        a = np.mean([self.plane() for _ in range(2)], axis=0)  # at E/2
         self.set_exposure(exp)
         mask = b < 0.9 * self.full
         ratio = (float(b[mask].mean()) - self.black) / max(float(a[mask].mean()) - self.black, 1e-9)
-        ratio *= exp / exp2 * 2  # the camera may round the doubled exposure
+        ratio *= half / exp * 2  # the camera may round the halved exposure
+        self.rate0 = lvl / exp
         expect = (
             self.sheet.state_checks.linear_output.expect_ratio
             if self.sheet is not None
@@ -232,7 +235,7 @@ class _Assessment:
                 )
             )
         else:
-            near_lut = lut is not None and abs(ratio - lut) < 0.1
+            near_lut = lut is not None and abs(ratio - lut) < 0.25
             self.add(
                 SiteCheck(
                     name="camera_state",
@@ -281,6 +284,7 @@ class _Assessment:
         period_rows = rows.shape[1] / kf if kf > 0 else float("inf")
         return {
             "exposure_us": exp,
+            "band_period_sensor_rows": period_rows * (2 if is_bayer(self.fmt) else 1),
             "row_banding_share": share,
             "banding_vs_row_noise": visible,
             "frame_change_pct": frame_pct,
@@ -448,6 +452,20 @@ class _Assessment:
         exp = self.set_exposure(exp)
         a, b = self.plane(), self.plane()
         lvl = self.level(a)
+        if self.rate0:
+            drift = (lvl / exp) / self.rate0 - 1
+            self.add(
+                SiteCheck(
+                    name="light_stability",
+                    status="warn" if abs(drift) > LIGHT_DRIFT_WARN else "pass",
+                    message=f"the light changed {drift * 100:+.1f} % during the check",
+                    action="the light is not steady (daylight, a light warming up, a person "
+                    "moving): repeat the assessment when it is, or shield the scene"
+                    if abs(drift) > LIGHT_DRIFT_WARN
+                    else "",
+                    data={"drift": drift},
+                )
+            )
         bands = fm.snr_by_level(a, b, self.black, self.full - self.black)
         curve = self.sheet.performance.snr_vs_signal if self.sheet else None
         rows: list[dict[str, Any]] = [

@@ -642,7 +642,7 @@ The fingerprint of a camera **model** is the reference the local AI agent uses f
 - **Each fingerprint records first:** camera model, serial number and firmware (`DeviceFirmwareVersion`, not the discovery "version"), then the lens and the iris per step.
 - **Fixed reference state** for the whole run: the lens named in the recipe, **iris fully open** (a mechanical end stop, so repeatable), the bench light at the recipe's reference setting. Focus is not needed (the cap and the diffuser make focus irrelevant; the diffuser works because it is out of focus).
 - **Checklists:** every step lists what the human must have done (e.g. "Lens cap on", "Iris set to f/8"); **Run** is enabled only when every item is ticked, and the ticks reset after a STOP.
-- **Light recipe per camera model** (in the camera profile, `fingerprint:`): the lens, the reference light (dimmer setting + f-number) and, for HDR cameras, up to four **channel stages** — each a dimmer setting + f-number + the channels measured there. A stage is its own step row (5a–5d). The **bench light table** (`config/fingerprint_bench.yaml`: relative light per dimmer setting, measured 2026-10-22; the lenses and their marked f-stops) turns a stage into an expected light level.
+- **Light recipe per camera model** (in the camera profile, `fingerprint:`): the lens, the reference light (dimmer setting + f-number) and, for HDR cameras, up to four **channel stages** — each a dimmer setting + f-number + the channels measured there. A stage is its own step row (5a–5d). The **bench light table** (`config/fingerprint_bench.yaml`: relative light per dimmer setting, measured 2026-10-22; the lenses and their marked f-stops, which move to the catalog database: see below) turns a stage into an expected light level.
 - **Measured verification:** before a stage measures anything, camera_lab measures the light (combined output, linear) and compares it with the recipe's expectation (dimmer ratio × (f_ref / f)²). Outside ±35 % → STOP "the light is N× what dimmer D, f/F should give: check the dimmer and the iris". A channel that still does not fit in a correct stage → STOP "the recipe is off by N× (≈ k f-stops): send this message to the engineer" (the human does not adjust on their own).
 - **Light back:** after the stages, a step requires the reference state again (iris fully open, reference dimmer) and verifies it within ±12 % of the light measured in the flat step; nothing after it runs until it passes.
 - **No recipe** (a new model): HDR channels run in **discovery mode** — one stage that reports, per channel, how much less/more light it needs (as a factor and in f-stops). Those numbers become the model's recipe.
@@ -652,6 +652,154 @@ The fingerprint of a camera **model** is the reference the local AI agent uses f
 - **Skip:** only a light-change row (HDR channels) can be skipped, after a STOP, with a reason recorded in the report.
 - **Modules by sensor type** (Derek 2026-10-22): every camera gets the **core** (cap: identity, darks; diffuser: timing, flat, noise vs gain; finish: user sets, report) so cameras stay comparable; the profile's `characteristics` add modules — **colour planes** for Bayer and prism sensors (each raw site / sensor: response relative to green, temporal noise, PRNU; Bayer green imbalance Gr − Gb; same diffuser frames, no extra human setup), **HDR channels** where `hdr_capable`. Identity flags a profile whose declared sensor colour does not match the camera's raw format. **Prism alignment is not tested:** assumed good (factory-aligned; Derek 2026-10-23). Code: `two_d/fingerprint/` — `common` (types, constants), `base` (camera helpers), `plan` (rows from sensor type + recipe), `core`, `colour`, `hdr`, `report`, `session` (ties them together).
 - **Lens transmission:** fast lenses pass more light when stopped down than the nominal (f_open / f)² (Kowa 8 mm: f/2.8 = 0.357 of open, not 0.25); the bench file keeps measured transmission per stop.
+
+### Complete fingerprint, camera and lens white papers (Derek, 2026-10-25)
+*"If this test takes an hour but we have great data for the camera it is worth it. Each camera
+and lens should have a white paper."* The fingerprint is run once per camera and lens, and its
+papers are used on every site, so **no measurement is sampled or shortened**: every gain step,
+every marked iris stop, every saved setting. A run is always the full procedure. A second lens
+on a known camera runs the camera rows again too, which gives one more camera run for
+repeatability.
+
+**Camera and lens catalog: one SQLite database** (Derek 2026-10-25: "we can update cells with a
+data base, files are messy"). Cameras and lenses are many-to-many: a camera model carries
+several lenses and a lens can go on several camera models. Each camera model + lens pair has
+its own data and paper, because the same lens behaves differently on another sensor (size,
+prism or Bayer). The database is the **single source of truth**; nothing else is edited by hand.
+
+- **Engine:** SQLite (Python's built-in `sqlite3`, no new package, no server), one file:
+  `WS/config/camera_catalog.sqlite`, backed up with the workspace. Write-ahead logging and one
+  transaction per change, so the GUI, CLI and MCP server can use it at the same time. A
+  `schema_version` table and numbered migrations. The tables are plain SQL so the database can
+  move to PostgreSQL later (to share one catalog live between robot cells) by copying, not
+  redesigning.
+- **Tables:**
+
+  | table | one row per | holds |
+  |---|---|---|
+  | `camera_models` | camera model | vendor, sensor, shutter, colour type, design mode |
+  | `cameras` | physical camera (serial) | its model, firmware, where it is installed |
+  | `lenses` | lens | name, focal length, mount, notes |
+  | `lens_stops` | lens + marked stop | f-number, end stop or not, light measured vs fully open, when and on which fingerprint |
+  | `pairs` | camera model + lens | usable stops (e.g. limits of a prism's aperture rating), notes |
+  | `pair_stops` | pair + stop | vignetting and per-colour corner shading |
+  | `fingerprints` | fingerprint run | camera, lens, start / end, temperatures, status, the raw-data folder |
+  | `results` | measured value | quantity, value, unit, conditions (gain, exposure, gain mode, stop, colour plane), the run it came from, so every number traces back to its measurement |
+  | `change_log` | change | who (human / agent / fingerprint), when, table, row, old → new value |
+
+- **Stays as files** (too big for a database; the database points at them): raw fingerprint
+  data, master darks / flats, reports of each run under `WS/config/camera_fingerprints/`.
+- **White papers are generated from the database** after every fingerprint and on request:
+  the camera paper `config/camera_models/<model>/camera.md` + `.yaml` and the pair paper
+  `config/camera_models/<model>/lenses/<lens>.md` + `.yaml`. They are what agents and Derek
+  read, never edited by hand (a value is changed in the database and the paper regenerated);
+  the generated papers are committed as reviewable snapshots. The `.yaml` twins keep the
+  format the tools already read (`camera_models.py`).
+- **Who reads and writes:** a catalog module in code is the only access. It answers the lenses
+  for a camera model (the GUI pick list), the data and paper for a camera + lens, the camera
+  models a lens has been tested on; the fingerprint writes runs, results, lens stops and pair
+  stops; "Add a lens" writes `lenses` and `lens_stops`. MCP `get_camera_white_paper` returns
+  the camera paper and, when a lens is given or known, the pair paper.
+- **Camera profiles** (`config/camera_profiles/<serial>.yaml`: modes, working ranges, the
+  fingerprint recipe) stay files for now; the recipe names a lens by its catalog id. The bench
+  file (`config/fingerprint_bench.yaml`) keeps only the bench: the light, the minimum
+  exposures, notes. Its lens list moves into the database.
+- **Migration:** the TRI054S-C and AP-3200T-PGE papers and their fingerprints so far are loaded
+  into the database (the papers' measured numbers become `results` rows tied to their runs);
+  the Kowa 8 mm (with its measured transmission) and the JAI 6 mm 0628-C3 become `lenses` +
+  `lens_stops`; the papers are then regenerated from the database and compared with the
+  hand-written ones before those are retired.
+
+**Lenses are picked, never typed.**
+- Before row 1, the fingerprint window shows the lenses known for this camera model as a pick
+  list: lenses already tested on this camera model first, then every lens in the catalog. With
+  one lens it is already picked. The iris for each row comes from the procedure (end stops,
+  marked stops), so camera_lab fills in the Lens / iris text; nobody types it.
+- **Add a lens** is the only data a human enters, copied from the lens barrel:
+  - model name;
+  - focal length (mm);
+  - mount (picked: C, CS, …);
+  - the f-stops marked on the ring, ticked from the standard list (1, 1.4, 2, 2.8, 4, 5.6, 8,
+    11, 16, 22, 32; dots between marks are not stops).
+
+  The lens is saved in the database (`lenses`, `lens_stops`), and the fingerprint measures
+  the rest: the light measured at each stop replaces the nominal (f_open / f)².
+- When the camera model has more than one lens, the human picks the one being tested, and the
+  recipe's iris steps apply to the picked lens's stops.
+
+**Iris rule:** every row the human must return to runs at an **end stop** (fully open or fully
+closed), because only an end stop is repeatable on a short-throw ring. Marked middle stops are
+used only where nothing has to come back to them (the lens rows); there the ±35 % light check
+tells the human which way to turn. Global-shutter cameras use the bench's shorter minimum
+exposure (`min_exposure_global_us`, 1 ms), so fully open fits the sweep. Evidence: the JAI's
+frame-to-frame variation under the floods is 0.8 % at 1 ms.
+
+**Rows.** One row per bench state. Each measurement that repeats is measured 3×. Every row
+records the camera temperature and the lens / iris it ran at.
+1. **Lens cap on:**
+   - identity and start state;
+   - darks at **every gain step** (3 dB, the camera's whole range, in both gain modes where
+     the camera has them) and at exposures **from 1 ms to 2 s**;
+   - read noise, DSNU, black level, dark current and hot pixels, against exposure and
+     temperature.
+2. **Diffuser, fully open:**
+   - timing: fps per format, settling, the frame-rate margin for long exposures, the image
+     pipeline;
+   - flat sweep: linearity, photon transfer, PRNU;
+   - colour planes;
+   - **noise vs gain over the whole range in each gain mode**, with photon transfer per gain.
+     When a gain step would need less than the minimum exposure, the gain range is not cut:
+     that step continues in the low-light row instead.
+3. **HDR channels**, where the camera has them (recipe stages; discovery without a recipe).
+4. **Low light, iris fully closed** (an end stop; floods full):
+   - measured signals from a few DN up to 2 % of full scale: SNR, quantization, clipping at
+     black;
+   - **gain at a fixed exposure**, in both gain modes: does gain help when the light cannot
+     grow?
+   - long exposures from 0.5 to 2 s, with hot pixels and black drift;
+   - N-frame averaging (√N).
+5. **Lens, one row per marked stop** between the end stops:
+   - the light factor against fully open (measured);
+   - vignetting and per-colour corner shading.
+
+   Fully open and fully closed come from rows 2 and 4. Results go into the database: the
+   lens's light per stop (`lens_stops`) and the pair's shading per stop (`pair_stops`).
+6. **Finish, iris fully open:**
+   - light back (within ±12 % of row 2);
+   - **every setting the site setup saves** is written with a test value: pixel format,
+     exposure, gain, gain and exposure modes, per-sensor exposures, white balance, black level,
+     LUT / gamma, frame rate, ROI, trigger, HDR settings;
+   - saved to the camera's boot user set, then a software reboot (`DeviceReset`);
+   - kept / lost recorded **per setting**.
+7. **Power cycle:**
+   - The human unplugs the camera (power / PoE) for at least 10 s and plugs it back in, ticked
+     in the checklist. The row can be skipped only with a reason, and the user set is restored
+     either way.
+   - Kept / lost per setting after a real power cut, compared with the software reboot.
+   - Then **the site path itself**: the setup tool's "installed on site" save (User Set 1, plus
+     the boot set where the camera has one), a power cycle (or a reboot if the first was
+     skipped), and `verify` must pass in the design mode.
+   - Then everything is put back (User Set 1 refilled with factory Default, boot set Default),
+     checked, and the reports are written.
+
+**Reports:**
+- **Camera paper:** per-gain and per-exposure tables, the low-light tables, the full user-set
+  table (kept / lost after the reboot and after the power cycle), and whether the site setup
+  survives a power cut.
+- **Pair paper:** the per-stop tables (light, vignetting, shading).
+- Expected run: 30–60 minutes of measuring. The report lists the time per row and per
+  measurement.
+
+**Done when (additions):**
+- [ ] The fingerprint window offers only picks (lens list, add-lens form); no free text.
+- [ ] Every gain step, every exposure from 1 ms to 2 s, every marked stop and every saved
+  setting appears in the report; nothing is sampled.
+- [ ] The power-cycle row and the site path pass on the TRI054S-C and the JAI, and the camera
+  is left booting as from factory Default (tested with a simulated power cut first).
+- [ ] The SQLite catalog holds both camera models, both lenses and both pairs (TRI054S-C + Kowa
+  8 mm, AP-3200T-PGE + JAI 6 mm 0628-C3) with every result traced to its run; the papers are
+  generated from it; the GUI pick list, "Add a lens" and `get_camera_white_paper` use it; every
+  change is in `change_log`; Derek reviews the papers.
 
 ### Bench vs. machine (Derek, 2026-10-21)
 The bench proves the workflow. Intrinsic and extrinsic calibration is done **on the machine, after the cameras are mounted** (separate calibration app). So the fingerprint marks each result:

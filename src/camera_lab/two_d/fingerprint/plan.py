@@ -16,7 +16,8 @@ from camera_lab.two_d.fingerprint.common import (
     BOOT_SLOT,
     CHANNEL_PREFIX,
     FP_SETUPS,
-    LENS_STOPS_CLOSED,
+    LENS_SETUPS,
+    LENS_STEPS,
     LIGHT_SETUPS,
     PERSIST_SLOT,
     REPEATS,
@@ -140,28 +141,43 @@ class PlanMixin(SessionBase):
                 )
             else:
                 plan[setup] = StepPlan(setup, "Not used", "Not used for this camera.", active=False)
-        stops = LENS_STOPS_CLOSED
-        f_lens = self._lens_row_f() if picked else None
-        lens_how = (
-            f"Set the iris to f/{f_lens:g} ({stops} f-stops smaller than the diffuser row)."
-            if f_lens is not None
-            else f"Close the iris {stops} f-stops from the diffuser row."
-        )
-        lens_checks: tuple[str, ...] = (
-            self._iris_text(f_lens) if f_lens is not None else f"Iris closed {stops} f-stops",
-            "Diffuser still on the lens",
-        )
-        plan["lens"] = StepPlan(
-            "lens",
-            "Lens / iris",
-            f"Keep the diffuser on. {lens_how} camera_lab checks the light fell about "
-            f"{2**stops}×, then measures vignetting and colour shading at this iris against the "
-            "diffuser row (prism cameras are rated for one aperture). Skip if the lens has no "
-            "iris.",
-            lens_checks,
-            ("lens_iris",),
+        # one row per marked stop between the end stops, the iris turning one way (Derek
+        # 2026-10-25: every stop), then the low-light row at the closed end stop
+        marks = sorted(self.lens_spec.f_stops) if self.lens_spec is not None else []
+        closed = marks[-1] if len(marks) > 1 else None
+        middle = [f for f in marks if f not in (ref.f_number, closed)]
+        for i, setup in enumerate(LENS_SETUPS):
+            if i < len(middle):
+                f = middle[i]
+                plan[setup] = StepPlan(
+                    setup,
+                    f"Iris f/{f:g}",
+                    f"Keep the diffuser on. Set the iris to the f/{f:g} mark. camera_lab checks "
+                    "the light against the lens's stops, then measures the light this stop "
+                    "passes, vignetting and colour shading against fully open (prism cameras "
+                    "are rated for one aperture). Skip only if the lens has no iris.",
+                    (self._iris_text(f), "Diffuser still on the lens"),
+                    (LENS_STEPS[i],),
+                    can_skip=True,
+                    f_number=f,
+                )
+            else:
+                plan[setup] = StepPlan(setup, "Not used", "Not used for this lens.", active=False)
+        plan["low_light"] = StepPlan(
+            "low_light",
+            f"Iris fully closed (f/{closed:g}): low light" if closed else "Low light",
+            "Keep the diffuser on and turn the iris to its closed end stop. camera_lab checks "
+            "the light, then measures the darkest signals (from about one read noise up), gain "
+            "at a fixed exposure, the gain steps the bright row could not reach, and frame "
+            "averaging (minutes). Skip only if the lens has no iris.",
+            (
+                self._iris_text(closed) if closed else "Iris fully closed (end stop)",
+                "Diffuser still on the lens",
+            ),
+            ("low_light",),
             can_skip=True,
-            f_number=f_lens,
+            f_number=closed,
+            active=closed is not None or not picked,
         )
         info = self.service.user_set_info(self.camera_id)
         slots = info.get("slots", [])

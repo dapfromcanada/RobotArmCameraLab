@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -19,10 +18,8 @@ if TYPE_CHECKING:
     from camera_lab.two_d.profiles import FingerprintRecipe, FpLight
     from camera_lab.two_d.service import Actor, TwoDService
 from camera_lab.two_d.fingerprint.common import (
-    F_STOPS,
     FLICKER_MAX_INFLATION,
     FP_SETUPS,
-    LENS_STOPS_CLOSED,
     MAX_EXPOSURE_US,
     PROBE_FRACTION,
     FpResult,
@@ -45,6 +42,7 @@ class SessionBase:
     temperatures: dict[str, float]  # camera °C at the start of each setup
     gain_adjustable: bool  # the camera has a gain control (measured even if the mode pins it)
     mode_gain_db: float  # the gain the design mode leaves (restored after gain sweeps)
+    deferred_gains: dict[str, list[float]]  # gain mode → steps left to the low-light row
     plan: dict[FpSetup, StepPlan]
     backup_id: str | None
     fmt: str
@@ -204,7 +202,14 @@ class SessionBase:
                 exp = min(e_hi, exp * 8)
             else:
                 break
-        return max(m, 0.0) / exp
+        return max(m - self._dark_signal(exp), 0.0) / exp
+
+    def _dark_signal(self, exposure_us: float) -> float:
+        """What the dark current adds above the black level at ``exposure_us`` (the closed-iris
+        rows run long exposures: 2026-10-25 sim, +14 % light without this)."""
+        dark = self.results.get("dark")
+        rate = dark.data.get("dark_current_dn_s") if dark is not None else None
+        return float(rate) * exposure_us / 1e6 if isinstance(rate, int | float) else 0.0
 
     def _check_light(
         self, expected: float, tolerance: float, what: str
@@ -220,18 +225,19 @@ class SessionBase:
             how = f"the light is {ratio:.2f}× what {what} should give"
         return ratio, f"{how}: check the dimmer and the iris, then Retry"
 
-    def _lens_row_f(self) -> float:
-        """The lens row's f-number: LENS_STOPS_CLOSED stops from the reference, on a mark."""
-        ref = self._reference().f_number
-        target = ref * 2 ** (LENS_STOPS_CLOSED / 2)
-        marks = self.lens_spec.f_stops if self.lens_spec is not None else F_STOPS
-        return min(marks, key=lambda f: abs(math.log(f / target)))
-
     def _lens_at(self, light: FpLight) -> str:
         return f"{self.lens_label}, f/{light.f_number:g}"
 
     def _iris_text(self, f_number: float) -> str:
-        return f"Iris at f/{f_number:g}" + (" (fully open)" if f_number == self._open_f else "")
+        closed = max(self.lens_spec.f_stops) if self.lens_spec is not None else None
+        end = (
+            " (fully open)"
+            if f_number == self._open_f
+            else " (fully closed)"
+            if f_number == closed
+            else ""
+        )
+        return f"Iris at f/{f_number:g}{end}"
 
     def _reference(self) -> FpLight:
         """The reference light: the recipe's, else the bench light at its brightest setting with

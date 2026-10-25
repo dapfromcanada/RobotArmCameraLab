@@ -11,7 +11,7 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 
@@ -198,24 +198,27 @@ def results_from_fingerprint(doc: dict[str, Any], f_number: float | None = None)
     add(_r("corner_colour_cast_pct", col.get("corner_colour_cast_pct"), f_number=f_number))
 
     ng = doc.get("noise_gain") or {}
-    for row in ng.get("table") or []:
-        g = row.get("gain_db")
+    tables = ng.get("tables") or {"master": ng.get("table") or []}
+    low = doc.get("low_light") or {}
+    gain_rows = [r for t in tables.values() for r in t] + list(low.get("deferred_gain_rows") or [])
+    for row in gain_rows:
+        g, mode = row.get("gain_db"), row.get("gain_mode") or "master"
         for q in ("snr", "sigma_dn", "gain_dn_per_e", "read_noise_e", "full_well_e"):
             add(
                 _r(
                     q,
                     row.get(q),
                     gain_db=g,
-                    gain_mode="master",
+                    gain_mode=mode,
                     signal_dn=_num(row.get("signal_dn")),
-                    note="noise vs gain",
+                    note="noise vs gain" + (", low-light row" if row.get("row") else ""),
                 )
             )
     modes = ng.get("gain_modes") or {}
     for mode, row in modes.items():
         if not isinstance(row, dict):
             continue
-        for q in ("gain_dn_per_e", "read_noise_e", "full_well_e", "clips_at_dn", "snr"):
+        for q in ("clips_at_dn", "full_well_e"):
             add(_r(q, row.get(q), gain_db=row.get("gain_db"), gain_mode=mode, note="gain modes"))
     if modes:
         add(
@@ -224,19 +227,80 @@ def results_from_fingerprint(doc: dict[str, Any], f_number: float | None = None)
                 modes.get("signal_ratio"),
                 gain_mode="individual",
                 gain_db=0.0,
-                note="individual vs master at 0 dB",
+                note="individual vs master at the lowest gain",
             )
         )
+    for p in (doc.get("dark") or {}).get("gain_points") or []:
+        add(
+            _r(
+                "read_noise_dn",
+                p.get("read_noise_dn"),
+                gain_db=p.get("gain_db"),
+                gain_mode=p.get("gain_mode"),
+                exposure_us=p.get("exposure_us"),
+                note="dark per gain",
+            )
+        )
+    for h in (doc.get("dark") or {}).get("hot_pixels_by_exposure") or []:
+        add(_r("hot_pixel_count", h.get("hot_pixels"), exposure_us=h.get("exposure_us")))
+    if low:
+        for lv in low.get("levels") or []:
+            for q in ("snr", "sigma_dn"):
+                add(
+                    _r(
+                        q,
+                        lv.get(q),
+                        signal_dn=_num(lv.get("signal_dn")),
+                        exposure_us=lv.get("exposure_us"),
+                        note="low light",
+                    )
+                )
+            add(
+                _r(
+                    "model_snr",
+                    lv.get("model_snr"),
+                    signal_dn=_num(lv.get("signal_dn")),
+                    note="low light",
+                )
+            )
+        for row in (low.get("gain_fixed_exposure") or {}).get("rows") or []:
+            add(
+                _r(
+                    "snr",
+                    row.get("snr"),
+                    gain_db=row.get("gain_db"),
+                    gain_mode=row.get("gain_mode"),
+                    exposure_us=row.get("exposure_us"),
+                    note="low light, fixed exposure",
+                )
+            )
+        for a in low.get("averaging") or []:
+            add(
+                _r(
+                    "averaging_snr_gain",
+                    a.get("snr_gain"),
+                    setting=f"{a.get('frames')} frames",
+                    note="low light",
+                )
+            )
 
     for ch, c in (doc.get("hdr_channels") or {}).items():
         pt = c.get("photon_transfer") or {}
         for q in ("system_gain_dn_per_e", "full_well_e", "linearity_error_pct"):
             add(_r(q, pt.get(q), channel=ch, f_number=f_number_of(c.get("lens"))))
 
-    li = doc.get("lens_iris") or {}
-    if li:
-        lf = f_number_of(li.get("lens"))
-        add(_r("light_vs_reference", li.get("light_vs_diffuser_row"), f_number=lf))
+    stop_rows = [v for k, v in doc.items() if k.startswith("lens_iris") and isinstance(v, dict)]
+    if low.get("f_number") is not None:
+        stop_rows.append(low)
+    for li in stop_rows:
+        lf = _num(li.get("f_number")) or f_number_of(li.get("lens"))
+        add(
+            _r(
+                "light_vs_reference",
+                li.get("light_vs_reference", li.get("light_vs_diffuser_row")),
+                f_number=lf,
+            )
+        )
         add(_r("vignetting_corner_ratio", li.get("vignetting_corner_ratio"), f_number=lf))
         for plane, v in (li.get("corner_ratio") or {}).items():
             add(_r("corner_ratio", v, plane=plane, f_number=lf))
@@ -396,42 +460,10 @@ def import_all(
         if serial not in known:
             notes.append(f"{serial}/{stamp}: camera not in the catalog, skipped")
             continue
-        doc = yaml.safe_load(fy.read_text()) or {}
-        run_id = f"{serial}/{stamp}"
-        facts = RUN_FACTS.get(run_id, {})
-        ident = doc.get("identity") or {}
-        lens_text = ident.get("lens") or None
-        found = cat.find_lens(lens_text) if lens_text else None
-        lens_id = facts.get("lens_id", found.id if found else None)
-        f_ref = facts["f_number"] if "f_number" in facts else f_number_of(lens_text)
-        temps = [float(v) for v in (doc.get("temperatures_c") or {}).values()]
-        results = results_from_fingerprint(doc, f_ref)
-        n_results += cat.add_run(
-            run_id,
-            serial,
-            kind="fingerprint",
-            started_utc=str(doc.get("created_utc")),
-            status="pass",  # a fingerprint folder is written only when the finish row passes
-            results=results,
-            lens_id=lens_id,
-            lens_text=lens_text,
-            f_number=f_ref,
-            valid=bool(facts.get("valid", True)),
-            note=facts.get("note"),
-            folder=str(fy.parent),
-            temperature_min_c=min(temps) if temps else None,
-            temperature_max_c=max(temps) if temps else None,
-            actor="import",
-        )
+        res, pairs = import_run(cat, fy, actor="import")
+        n_results += res
+        n_pair += pairs
         n_runs += 1
-        if not facts.get("valid", True) or lens_id is None:
-            continue
-        model = cat.model_of(serial)
-        if model is None:  # pragma: no cover - the camera was checked above
-            continue
-        n_pair += _pair_numbers(
-            cat, model, lens_id, run_id, f_ref, results, str(doc.get("created_utc"))
-        )
 
     # live checks
     if "U330439" in known:
@@ -453,6 +485,54 @@ def import_all(
     return ImportReport(len(models), n_cameras, n_lenses, n_runs, n_results, n_pair, tuple(notes))
 
 
+def import_run(
+    cat: Catalog,
+    fingerprint_yaml: Path,
+    *,
+    lens_id: str | None = None,
+    actor: Literal["fingerprint", "import"] = "fingerprint",
+) -> tuple[int, int]:
+    """One fingerprint folder into the catalog: the run, its results, the pair's per-stop
+    shading and the lens's measured light per stop. Returns (results, per-stop values). The
+    fingerprint calls it when it writes its report; the camera must be in the catalog."""
+    serial, stamp = fingerprint_yaml.parent.parent.name, fingerprint_yaml.parent.name
+    doc = yaml.safe_load(fingerprint_yaml.read_text()) or {}
+    run_id = f"{serial}/{stamp}"
+    facts = RUN_FACTS.get(run_id, {})
+    ident = doc.get("identity") or {}
+    lens_text = ident.get("lens") or None
+    if lens_id is None:
+        found = cat.find_lens(lens_text) if lens_text else None
+        lens_id = facts.get("lens_id", found.id if found else None)
+    f_ref = facts["f_number"] if "f_number" in facts else f_number_of(lens_text)
+    temps = [float(v) for v in (doc.get("temperatures_c") or {}).values()]
+    results = results_from_fingerprint(doc, f_ref)
+    n = cat.add_run(
+        run_id,
+        serial,
+        kind="fingerprint",
+        started_utc=str(doc.get("created_utc")),
+        status="pass",  # a fingerprint folder is written only when the finish row passes
+        results=results,
+        lens_id=lens_id,
+        lens_text=lens_text,
+        f_number=f_ref,
+        valid=bool(facts.get("valid", True)),
+        note=facts.get("note"),
+        folder=str(fingerprint_yaml.parent),
+        temperature_min_c=min(temps) if temps else None,
+        temperature_max_c=max(temps) if temps else None,
+        actor=actor,
+    )
+    model = cat.model_of(serial)
+    if not facts.get("valid", True) or lens_id is None or model is None:
+        return n, 0
+    pairs = _pair_numbers(
+        cat, model, lens_id, run_id, f_ref, results, str(doc.get("created_utc")), actor
+    )
+    return n, pairs
+
+
 def _pair_numbers(
     cat: Catalog,
     model: str,
@@ -461,6 +541,7 @@ def _pair_numbers(
     f_ref: float | None,
     results: list[Result],
     started_utc: str,
+    actor: Literal["fingerprint", "import"] = "import",
 ) -> int:
     """Per-stop pair numbers (corner ratios per plane) and the lens's measured light."""
     lens = cat.lens(lens_id)
@@ -471,14 +552,14 @@ def _pair_numbers(
             continue
         if r.quantity == "corner_ratio" and r.plane:
             cat.set_pair_stop(
-                model, lens_id, r.f_number, r.plane, r.value, fingerprint_id=run_id, actor="import"
+                model, lens_id, r.f_number, r.plane, r.value, fingerprint_id=run_id, actor=actor
             )
             n += 1
         elif r.quantity == "vignetting_corner_ratio" and not any(
             x.quantity == "corner_ratio" and x.f_number == r.f_number for x in results
         ):
             cat.set_pair_stop(
-                model, lens_id, r.f_number, "all", r.value, fingerprint_id=run_id, actor="import"
+                model, lens_id, r.f_number, "all", r.value, fingerprint_id=run_id, actor=actor
             )
             n += 1
         elif (
@@ -493,7 +574,7 @@ def _pair_numbers(
                 r.value,
                 fingerprint_id=run_id,
                 measured_utc=started_utc,
-                actor="import",
+                actor=actor,
                 reason="lens row against fully open",
             )
     return n

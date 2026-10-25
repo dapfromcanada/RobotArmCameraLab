@@ -30,16 +30,70 @@ FpStep = Literal[
     "channels_d",
     "light_back",
     "noise_gain",
-    "lens_iris",
+    "lens_iris_1",
+    "lens_iris_2",
+    "lens_iris_3",
+    "lens_iris_4",
+    "lens_iris_5",
+    "lens_iris_6",
+    "lens_iris_7",
+    "lens_iris_8",
+    "low_light",
     "user_sets",
     "report",
 ]
 STAGE_STEPS: tuple[FpStep, ...] = ("channels_a", "channels_b", "channels_c", "channels_d")
 #: What the human sets up (Derek 2026-10-22: one test per bench state): each setup is one
 #: row with one checklist and one Run, and makes several measurements (FpStep).
-FpSetup = Literal["cap", "diffuser", "light_2", "light_3", "light_4", "lens", "finish"]
+FpSetup = Literal[
+    "cap",
+    "diffuser",
+    "light_2",
+    "light_3",
+    "light_4",
+    "lens_1",
+    "lens_2",
+    "lens_3",
+    "lens_4",
+    "lens_5",
+    "lens_6",
+    "lens_7",
+    "lens_8",
+    "low_light",
+    "finish",
+]
 LIGHT_SETUPS: tuple[FpSetup, ...] = ("light_2", "light_3", "light_4")
-FP_SETUPS: tuple[FpSetup, ...] = ("cap", "diffuser", *LIGHT_SETUPS, "lens", "finish")
+#: One row per marked stop between the lens's end stops (Derek 2026-10-25: every stop).
+LENS_SETUPS: tuple[FpSetup, ...] = (
+    "lens_1",
+    "lens_2",
+    "lens_3",
+    "lens_4",
+    "lens_5",
+    "lens_6",
+    "lens_7",
+    "lens_8",
+)
+LENS_STEPS: tuple[FpStep, ...] = (
+    "lens_iris_1",
+    "lens_iris_2",
+    "lens_iris_3",
+    "lens_iris_4",
+    "lens_iris_5",
+    "lens_iris_6",
+    "lens_iris_7",
+    "lens_iris_8",
+)
+#: The iris moves one way: fully open (diffuser) → each marked stop → fully closed (low
+#: light) → back to fully open (finish), so it turns as little as possible.
+FP_SETUPS: tuple[FpSetup, ...] = (
+    "cap",
+    "diffuser",
+    *LIGHT_SETUPS,
+    *LENS_SETUPS,
+    "low_light",
+    "finish",
+)
 MEASURE_LABELS: dict[FpStep, str] = {
     "identity": "identity",
     "timing": "timing",
@@ -52,7 +106,8 @@ MEASURE_LABELS: dict[FpStep, str] = {
     "channels_d": "HDR",
     "light_back": "light back",
     "noise_gain": "noise vs gain",
-    "lens_iris": "lens / iris",
+    **dict.fromkeys(LENS_STEPS, "lens / iris"),
+    "low_light": "low light",
     "user_sets": "user sets",
     "report": "report",
 }
@@ -75,8 +130,6 @@ PERSIST_SLOT = "UserSet2"
 #: power-cycle test 2026-10-21): the test uses it and then refills it with the factory
 #: Default settings, so the camera boots as from Default.
 BOOT_SLOT = "UserSet1"
-#: The lens row closes the iris this many f-stops from the diffuser row.
-LENS_STOPS_CLOSED = 2
 #: Lit measurements use exposures of at least this (bench file `min_exposure_us` overrides):
 #: bench LEDs ripple (~4 kHz on the "DC" floods, 120 Hz on the dimmed panels) and a short
 #: rolling-shutter exposure turns that into row bands (measured 2026-10-23).
@@ -104,14 +157,31 @@ FP_STEPS: tuple[FpStep, ...] = (
     *STAGE_STEPS,
     "light_back",
     "noise_gain",
-    "lens_iris",
+    *LENS_STEPS,
+    "low_light",
     "user_sets",
     "report",
 )
 
 DARK_FRAMES = 4
-DARK_EXPOSURES_US = (1_000.0, 10_000.0, 100_000.0)
-DARK_GAIN_STEP_DB = 6.0
+#: Dark exposures from 1 ms to 2 s (Derek 2026-10-25: complete, not sampled): dark current,
+#: hot pixels and black drift show at the long end.
+DARK_EXPOSURES_US = (
+    1_000.0,
+    2_000.0,
+    5_000.0,
+    10_000.0,
+    20_000.0,
+    50_000.0,
+    100_000.0,
+    200_000.0,
+    500_000.0,
+    1_000_000.0,
+    2_000_000.0,
+)
+DARK_REF_EXPOSURE_US = 10_000.0  # master dark, per-gain darks, row noise
+HOT_PIXEL_EXPOSURE_US = 100_000.0  # the hot-pixel list (comparable between runs)
+DARK_GAIN_STEP_DB = 3.0  # every gain step, as the noise-vs-gain row
 FLAT_TARGET = 0.80  # of (full scale − black): the sweep's reference point
 FLAT_SWEEP = (
     0.02,
@@ -139,6 +209,11 @@ NOISE_GAIN_STEP_DB = 3.0
 NOISE_PAIRS = 3
 GAIN_SWITCH_GAIN = 1.05  # SNR up by > 5 % for more gain → a gain-mode switch
 MAX_EXPOSURE_US = 2_000_000.0
+#: Low-light row: signals as multiples of the read noise, up to LOW_LIGHT_MAX of the range.
+LOW_LIGHT_LEVELS_RN = (1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0)
+LOW_LIGHT_MAX = 0.02
+LOW_LIGHT_GAIN_RN = 5.0  # gain at a fixed exposure: the exposure for 5 × read noise at gain 0
+AVERAGE_FRAMES = (1, 2, 4, 8, 16)  # N-frame averaging, expected √N
 SETTLE_FRAMES = 3
 SETTLE_MAX_LEVEL = 0.9  # of full scale: above, halve the exposure before the settle test
 SETTLE_MAX_HALVINGS = 6

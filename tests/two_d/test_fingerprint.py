@@ -31,12 +31,23 @@ def svc(make_service: Callable[..., TwoDService], tmp_path: Path) -> TwoDService
     return s
 
 
+def run_lens_rows(ses: FingerprintSession, cam: object) -> None:
+    """The human sets each marked stop, then the closed end stop (the sim's iris follows)."""
+    for setup, plan in ses.plan.items():
+        if not plan.active or not (setup.startswith("lens_") or setup == "low_light"):
+            continue
+        cam.iris_transmission = ses._expected_at(plan.f_number)  # type: ignore[attr-defined]
+        res = ses.run(setup, plan.checks)
+        assert res.status == "pass", res.message
+
+
 def _scene(svc: TwoDService, kind: str) -> None:
     svc._open[SIM].camera.scene = kind  # type: ignore[attr-defined]  # the human's action
 
 
 def test_fingerprint_recovers_the_sensor(svc: TwoDService, tmp_path: Path) -> None:
     ses = FingerprintSession(svc, SIM, root=tmp_path / "fp", reset=False)
+    ses.select_lens("kowa_8mm")
     before = svc.get_settings(SIM).settings
     ident = ses.step_identity()
     assert ident.ok and ses.fmt == "Mono12"
@@ -79,13 +90,34 @@ def test_fingerprint_recovers_the_sensor(svc: TwoDService, tmp_path: Path) -> No
     assert noise.data["snr_rises_at_db"] == []
     assert table[0]["gain_dn_per_e"] == pytest.approx(K, rel=0.1)  # photon transfer per gain
     assert table[0]["read_noise_e"] == pytest.approx(5.0, rel=0.2)
+    longest = min(2e6, ses._range("exposure_us")[1])  # 2 s, or the camera's longest
+    assert dark.data["hot_pixels_by_exposure"][-1]["exposure_us"] == longest
+    assert len(dark.data["hot_pixels_by_exposure"]) >= 10  # 1 ms up to it
+    assert {p["gain_db"] for p in dark.data["gain_points"]} >= {0.0, 3.0, 6.0}  # every 3 dB
     cam = svc._open[SIM].camera
-    cam.iris_transmission = 0.5  # type: ignore[attr-defined]  # one stop only: STOP
-    stop = ses.step_lens_iris()
+    lens_rows = [s for s in ses.plan if s.startswith("lens_") and ses.plan[s].active]
+    stops = [ses.plan[s].f_number for s in lens_rows]
+    assert stops == [2.0, 2.8, 4.0, 5.6, 8.0, 11.0]  # every stop between the end stops
+    cam.iris_transmission = 1.0  # type: ignore[attr-defined]  # the iris left fully open: STOP
+    stop = ses.step_lens_iris(0)
     assert stop.status == "fail" and "close the iris" in stop.message
-    cam.iris_transmission = 0.25  # type: ignore[attr-defined]  # two f-stops closed
-    lens = ses.step_lens_iris()
-    assert lens.ok and lens.data["light_vs_diffuser_row"] == pytest.approx(0.25, rel=0.05)
+    for i, f in enumerate(stops):
+        cam.iris_transmission = ses._expected_at(f)  # type: ignore[attr-defined]  # right stop
+        lens = ses.step_lens_iris(i)
+        assert lens.ok, lens.message
+        assert lens.data["light_vs_reference"] == pytest.approx(ses._expected_at(f), rel=0.05)
+    cam.iris_transmission = ses._expected_at(16.0)  # type: ignore[attr-defined]  # closed
+    low = ses.step_low_light()
+    assert low.ok, low.message
+    assert low.data["light_vs_reference"] == pytest.approx(ses._expected_at(16.0), rel=0.05)
+    levels = low.data["levels"]
+    assert levels and levels[0]["signal_dn"] < 3 * dark.data["read_noise_dn"]  # ≈ 1 read noise
+    for lv in levels:  # the noise model holds down to the darkest signals
+        assert lv["snr"] == pytest.approx(lv["model_snr"], rel=0.35)
+    avg = low.data["averaging"]
+    assert avg[-1]["snr_gain"] == pytest.approx(4.0, rel=0.2)  # 16 frames: √16
+    fixed = low.data["gain_fixed_exposure"]["rows"]
+    assert len(fixed) >= 3 and fixed[0]["gain_db"] == 0.0
     assert ses.step_light_back().status == "fail"  # iris still closed
     cam.iris_transmission = 1.0  # type: ignore[attr-defined]
     assert ses.step_light_back().ok
@@ -337,18 +369,23 @@ def test_hdr_recipe_stages_verify_the_light(
         assert ses.recipe is not None and ses.lens == "Kowa 8 mm, f/1.4"
         assert ses.min_exposure_us == 2000.0  # from the bench file
         ses.min_exposure_us = 0.0  # stage logic under test, not the bench's exposure floor
-        labels = [
-            ses.plan[s].label for s in ("cap", "diffuser", "light_2", "light_3", "lens", "finish")
-        ]
+        labels = [p.label for p in ses.plan.values() if p.active]
         assert labels == [
             "1. Lens cap on",
             "2. Diffuser on, iris f/1.4",
             "3. Iris f/8 (HDR ch 2)",
             "4. Iris f/16 (HDR ch 1)",
-            "5. Lens / iris",
-            "6. Iris back: finish",
+            "5. Iris f/2",  # every marked stop of the Kowa between its end stops
+            "6. Iris f/2.8",
+            "7. Iris f/4",
+            "8. Iris f/5.6",
+            "9. Iris f/8",
+            "10. Iris f/11",
+            "11. Iris fully closed (f/16): low light",
+            "12. Iris back: finish",
         ]
-        assert ses.plan["lens"].checks == ("Iris at f/2.8", "Diffuser still on the lens")
+        assert ses.plan["lens_2"].checks == ("Iris at f/2.8", "Diffuser still on the lens")
+        assert ses.plan["low_light"].checks[0] == "Iris at f/16 (fully closed)"
         assert ses.plan["finish"].checks[-1] == (
             "OK to write test values to UserSet2 and restart the camera"
         )
@@ -503,11 +540,11 @@ def test_setups_run_each_bench_state_once(svc: TwoDService, tmp_path: Path) -> N
     """One Run per bench state: cap (identity + darks ×3), diffuser (timing, flat ×3,
     noise), finish (user sets, report)."""
     ses = FingerprintSession(svc, SIM, root=tmp_path / "fp", reset=False)
-    assert [s for s in ses.plan if ses.plan[s].active] == [
+    assert [s for s in ses.plan if ses.plan[s].active] == [  # no lens picked yet
         "cap",
         "diffuser",
         "light_2",
-        "lens",
+        "low_light",
         "finish",
     ]
     assert ses.plan["cap"].label == "1. Lens cap on"
@@ -550,10 +587,7 @@ def test_setups_run_each_bench_state_once(svc: TwoDService, tmp_path: Path) -> N
     cam = svc._open[SIM].camera
     with pytest.raises(InvalidRequestError, match="fixed once a row has run"):
         ses.select_lens("jai_6mm_0628")
-    cam.iris_transmission = 0.25  # type: ignore[attr-defined]  # the human closes 2 stops
-    assert ses.plan["lens"].checks[0] == "Iris at f/2.8"
-    lens = ses.run("lens", ses.plan["lens"].checks)
-    assert lens.status == "pass", lens.message
+    run_lens_rows(ses, cam)
     cam.iris_transmission = 1.0  # type: ignore[attr-defined]
     fin = ses.run("finish", ses.plan["finish"].checks)
     assert fin.status == "pass", fin.message
@@ -563,12 +597,25 @@ def test_setups_run_each_bench_state_once(svc: TwoDService, tmp_path: Path) -> N
     assert "| cap | identity" in md and "**all**" in md and "Image pipeline (" in md
     assert "| finish | light_back" in md and "user_sets" in md.split("| finish |")[1]
     assert "Camera temperature:** cap 41.5 °C" in md
-    assert "**lens_iris** (pass): Kowa 8 mm, f/2.8: light 0.2" in md
+    assert "**lens_iris_2** (pass): Kowa 8 mm, f/2.8: light 0.35" in md
+    assert "| f/2.8 | 0.35" in md and "Low light (iris fully closed" in md
+    assert "Darks (cap on) at every exposure" in md and "Noise vs gain at a constant output" in md
     assert doc["setups"]["finish"]["status"] == "pass"  # the row that wrote the report
-    assert doc["lens_iris"]["lens"] == "Kowa 8 mm, f/2.8"
+    assert doc["lens_iris_2"]["lens"] == "Kowa 8 mm, f/2.8"
     assert doc["identity"]["lens"] == "Kowa 8 mm, f/1.4"
     assert doc["setups"]["cap"]["status"] == "pass"
     assert doc["dark"]["repeats"]["read_noise_dn"]["median"] > 0
+    assert "catalog:" in fin.message  # the run went into the catalog (the source of truth)
+    from camera_lab.two_d.catalog import Catalog
+
+    with Catalog() as cat:
+        run = next(r for r in cat.runs(SIM) if r["kind"] == "fingerprint")
+        assert (run["lens_id"], run["f_number"]) == ("kowa_8mm", 1.4)
+        assert len(cat.results(run["id"], "read_noise_dn")) > 10  # every exposure and gain step
+        kowa = cat.lens("kowa_8mm")
+        assert kowa is not None and "Simulated2D" in kowa.tested_on
+        light = {s.f_number: s.transmission for s in kowa.stops}
+        assert light[2.8] == pytest.approx(0.352, rel=0.05) and light[16.0] is not None
 
 
 def test_operator_can_skip_a_light_setup(tmp_roots: Path) -> None:
@@ -663,32 +710,37 @@ def test_other_gain_mode_is_measured_on_prism_cameras(
         if "exposure_us" in kw:
             state["exp"] = float(kw["exposure_us"])  # type: ignore[arg-type]
 
-    def gain_row(g: float, exp: float) -> dict[str, object]:
-        state["exp"] = exp
-        k = 0.9 if state["mode"] == "master" else 0.45  # individual: half the DN per e-
-        sig = (2.0 if state["mode"] == "master" else 1.0) * exp
-        return {
-            "gain_db": g,
-            "exposure_us": exp,
-            "signal_dn": sig,
-            "gain_dn_per_e": k,
-            "full_well_e": round(3995 / k),
-        }
-
     def plane() -> np.ndarray:  # individual mode: the sensor clips at 3 000 DN above black
         rate = 2.0 if state["mode"] == "master" else 1.0
         return np.full((20, 20), 100.0 + min(rate * state["exp"], 3000.0))
 
     monkeypatch.setattr(ses, "_settings", settings)
     monkeypatch.setattr(ses, "_set", set_)
-    monkeypatch.setattr(ses, "_gain_row", gain_row)
     monkeypatch.setattr(ses, "_plane", plane)
-    monkeypatch.setattr(ses, "_range", lambda name: (0.0, 18.0))
-    out = ses._other_gain_mode(500.0, 10.0, 1e6)
+    master = {
+        "gain_db": 0.0,
+        "exposure_us": 500.0,
+        "signal_dn": 1000.0,
+        "gain_dn_per_e": 0.9,
+        "full_well_e": round(3995 / 0.9),
+    }
+    indiv = {
+        "gain_db": 0.0,
+        "exposure_us": 500.0,
+        "signal_dn": 500.0,
+        "gain_dn_per_e": 0.45,
+        "full_well_e": round(3995 / 0.45),
+    }
+    state["mode"] = "individual"
+    clips = ses._clip_level(indiv, 10.0, 1e6)
+    assert clips["clips_at_dn"] == pytest.approx(3100.0)
+    assert clips["full_well_e"] == round(3000 / 0.45)
+    out = ses._gain_mode_summary(
+        {"master": [master], "individual": [indiv]}, {"individual": clips}, ["master", "individual"]
+    )
     assert out["signal_ratio"] == pytest.approx(0.5)
-    assert out["individual"]["clips_at_dn"] == pytest.approx(3100.0)
     assert out["individual"]["full_well_e"] == round(3000 / 0.45)
-    assert state["mode"] == "master"  # put back
+    assert "gain mode individual at 0 dB gives 0.50×" in out["summary"]
 
 
 def test_jai_recipe_uses_the_end_stop_and_the_global_shutter_minimum() -> None:
@@ -715,4 +767,10 @@ def test_jai_recipe_uses_the_end_stop_and_the_global_shutter_minimum() -> None:
     assert ses.lens == "JAI 6 mm 0628-C3, f/2.8" and ses.min_exposure_us == 1000.0
     assert "Iris at f/2.8 (fully open)" in ses.plan["diffuser"].checks
     assert "Iris at f/2.8 (fully open)" in ses.plan["finish"].checks
-    assert ses.plan["lens"].checks[0] == "Iris at f/5.6"
+    assert [ses.plan[s].checks[0] for s in ("lens_1", "lens_2", "lens_3", "lens_4")] == [
+        "Iris at f/4",
+        "Iris at f/5.6",
+        "Iris at f/8",
+        "Iris at f/11",
+    ]
+    assert ses.plan["low_light"].checks[0] == "Iris at f/16 (fully closed)"

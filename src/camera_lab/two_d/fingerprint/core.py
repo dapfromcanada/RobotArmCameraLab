@@ -27,13 +27,14 @@ from camera_lab.two_d.fingerprint.common import (
     DARK_EXPOSURES_US,
     DARK_FRAMES,
     DARK_GAIN_STEP_DB,
+    DARK_REF_EXPOSURE_US,
     FLAT_MASTER_FRAMES,
     FLAT_MASTER_LEVEL,
     FLAT_SWEEP,
     FLAT_TARGET,
     GAIN_SWITCH_GAIN,
+    HOT_PIXEL_EXPOSURE_US,
     MAX_EXPOSURE_US,
-    NOISE_GAIN_STEP_DB,
     NOISE_PAIRS,
     NOISE_TARGET,
     PERSIST_SLOT,
@@ -243,13 +244,34 @@ class CoreMeasurements(SessionBase):
             )
         )
 
+    def _gain_modes(self) -> list[str | None]:
+        """The design gain mode first, then the camera's other gain mode (prism cameras:
+        ``prism.gain_mode``); [None] where the camera has only one."""
+        now = self._settings().advanced.get("prism.gain_mode")
+        if now not in ("master", "individual"):
+            return [None]
+        return [now, "individual" if now == "master" else "master"]
+
+    def _gain_steps(self) -> list[float]:
+        """Every gain step (DARK_GAIN_STEP_DB) of the camera's range in the current mode."""
+        if not self.gain_adjustable:
+            return [self._gain()]
+        lo, hi = self._range("gain_db")
+        n = int((hi - lo) / DARK_GAIN_STEP_DB + 1e-6)
+        return [round(lo + i * DARK_GAIN_STEP_DB, 3) for i in range(n + 1)]
+
     def step_dark(self) -> FpResult:
-        """The human has put the lens cap on."""
+        """The human has put the lens cap on. Every exposure from 1 ms to 2 s at the design
+        gain, and every gain step at 10 ms in each gain mode (Derek 2026-10-25: complete)."""
         self._require("identity")
-        g_lo, g_hi = self._range("gain_db") if self.gain_adjustable else (0.0, 0.0)
-        g_lo = self._gain() if not self.gain_knob else g_lo  # the design mode's gain first
+        g_design = self._gain()
         e_lo, e_hi = self._range("exposure_us")
-        self._set(gain_db=g_lo, exposure_us=min(max(DARK_EXPOSURES_US[-1], e_lo), e_hi))
+        exposures = sorted(
+            {min(max(e, e_lo), min(e_hi, MAX_EXPOSURE_US)) for e in DARK_EXPOSURES_US}
+        )
+        ref_exp = min(max(DARK_REF_EXPOSURE_US, e_lo), e_hi)
+        hot_exp = min(exposures, key=lambda e: abs(math.log(e / HOT_PIXEL_EXPOSURE_US)))
+        self._set(gain_db=g_design, exposure_us=exposures[-1])
         if not fm.looks_dark(self._plane(), self.full_scale):
             return self._record(
                 FpResult(
@@ -259,32 +281,42 @@ class CoreMeasurements(SessionBase):
                 )
             )
         points = []
-        long_mean = None
-        for exp in DARK_EXPOSURES_US:
-            exp = min(max(exp, e_lo), e_hi)
-            self._set(gain_db=g_lo, exposure_us=exp)
+        hot_by_exposure: list[dict[str, float]] = []
+        hot_mean = None
+        for exp in exposures:
+            self._set(gain_db=g_design, exposure_us=exp)
             frames = [self._plane() for _ in range(DARK_FRAMES)]
-            points.append(fm.dark_point(frames, g_lo, exp))
+            points.append(fm.dark_point(frames, g_design, exp))
             mean = np.mean(frames, axis=0)
-            if exp == min(max(DARK_EXPOSURES_US[1], e_lo), e_hi):
+            hot_by_exposure.append({"exposure_us": exp, "hot_pixels": fm.hot_pixels(mean)[1]})
+            if exp == ref_exp:
                 self._arrays["master_dark"] = mean.astype(np.float32)
                 self._row_noise_dn2["own"] = fm.row_variance(frames[0], frames[1])
-            long_mean = mean
-        g = g_lo + DARK_GAIN_STEP_DB
-        while self.gain_adjustable and g <= g_hi + 1e-6:
-            self._set(gain_db=g, exposure_us=min(max(DARK_EXPOSURES_US[1], e_lo), e_hi))
-            points.append(
-                fm.dark_point([self._plane() for _ in range(DARK_FRAMES)], g, DARK_EXPOSURES_US[1])
-            )
-            g += DARK_GAIN_STEP_DB
+            if exp == hot_exp:
+                hot_mean = mean
+        gain_points: list[dict[str, Any]] = []
+        modes = self._gain_modes()
+        for mode in modes:
+            if mode is not None:
+                self._set(advanced={"prism.gain_mode": mode})
+            for g in self._gain_steps():
+                if not self._gain_writable(g):  # JAI individual mode: Gain is read-only
+                    break
+                self._set(exposure_us=ref_exp)
+                pt = fm.dark_point([self._plane() for _ in range(DARK_FRAMES)], g, ref_exp)
+                if mode == modes[0] and g != g_design:
+                    points.append(pt)
+                gain_points.append({**pt.model_dump(mode="json"), "gain_mode": mode})
+        if modes[0] is not None:
+            self._set(advanced={"prism.gain_mode": modes[0]})
         channels: dict[str, Any] = {}
         if self.hdr_channels:
-            exp = min(max(DARK_EXPOSURES_US[1], e_lo), e_hi)
-            self._set(exposure_us=exp)
+            exp = ref_exp
+            self._set(gain_db=g_design, exposure_us=exp)
             for out in self.hdr_channels:
                 self._output(out, self.channel_fmt)
                 frames = [self._plane() for _ in range(DARK_FRAMES)]
-                pt = fm.dark_point(frames, g_lo, exp)
+                pt = fm.dark_point(frames, g_design, exp)
                 self._channel_black[out] = pt
                 self._row_noise_dn2[out] = fm.row_variance(frames[0], frames[1])
                 channels[out] = {
@@ -294,13 +326,16 @@ class CoreMeasurements(SessionBase):
             self._output("HDR", self.fmt)
         self._set(exposure_us=self._view_exposure)  # viewable again
         self._set(gain_db=self._view_gain if self.gain_knob else self.mode_gain_db)
-        if long_mean is None:  # pragma: no cover - DARK_EXPOSURES_US is never empty
+        if hot_mean is None:  # pragma: no cover - DARK_EXPOSURES_US is never empty
             raise RuntimeError("no dark frames")
-        res = fm.dark_result(points, long_mean)
+        res = fm.dark_result(points, hot_mean)
         self.black_dn = res.black_dn
         data = res.model_dump(mode="json", exclude={"hot_pixels"})
         data["hot_pixels_first"] = [list(p) for p in res.hot_pixels[:50]]
         data["row_noise_dn"] = math.sqrt(self._row_noise_dn2.get("own", 0.0))
+        data["gain_points"] = gain_points  # every gain step, each gain mode, at 10 ms
+        data["hot_pixels_by_exposure"] = hot_by_exposure
+        data["hot_pixel_exposure_us"] = hot_exp
         if channels:
             data["channels"] = channels
         ch_note = ""
@@ -313,12 +348,17 @@ class CoreMeasurements(SessionBase):
                 )
                 + " (black/read noise)"
             )
+        longest = points[len(exposures) - 1]
         return self._record(
             FpResult(
                 step="dark",
                 status="pass",
                 message=f"black {res.black_dn:.1f} DN, read noise {res.read_noise_dn:.2f} DN, "
-                f"dark current {res.dark_current_dn_s:.1f} DN/s, {res.hot_pixel_count} hot pixels"
+                f"dark current {res.dark_current_dn_s:.1f} DN/s, {res.hot_pixel_count} hot pixels "
+                f"at {hot_exp / 1000:g} ms; {len(exposures)} exposures to "
+                f"{exposures[-1] / 1e6:g} s (read noise {longest.read_noise_dn:.2f} DN there), "
+                f"{len(gain_points)} gain steps"
+                + (f" in {len(modes)} gain modes" if modes[0] is not None else "")
                 + ch_note,
                 data=data,
             )
@@ -413,16 +453,30 @@ class CoreMeasurements(SessionBase):
             )
         )
 
-    def _dark_noise_at(self, gain_db: float) -> float | None:
-        """Read noise (DN) the darks measured at ``gain_db`` (nearest gain, 10 ms)."""
+    def _dark_noise_at(self, gain_db: float, mode: str | None = None) -> float | None:
+        """Read noise (DN) the darks measured at ``gain_db`` in gain ``mode`` (10 ms)."""
         dark = self.results.get("dark")
-        pts = dark.data.get("points", []) if dark is not None else []
+        if dark is None:
+            return None
+        pts = [
+            p
+            for p in dark.data.get("gain_points") or dark.data.get("points", [])
+            if mode is None or p.get("gain_mode") in (None, mode)
+        ]
         if not pts:
             return None
-        best = min(pts, key=lambda p: (abs(p["gain_db"] - gain_db), abs(p["exposure_us"] - 1e4)))
+        best = min(
+            pts,
+            key=lambda p: (
+                abs(p["gain_db"] - gain_db),
+                abs(p["exposure_us"] - DARK_REF_EXPOSURE_US),
+            ),
+        )
         return float(best["read_noise_dn"]) if abs(best["gain_db"] - gain_db) < 1.0 else None
 
-    def _gain_row(self, gain_db: float, exposure_us: float) -> dict[str, Any]:
+    def _gain_row(
+        self, gain_db: float, exposure_us: float, mode: str | None = None
+    ) -> dict[str, Any]:
         """Signal, temporal noise and the photon-transfer estimate at one gain: system gain
         k = shot variance / signal; read noise and full well in e- (the full well assumes
         the output clips at full scale, i.e. the ADC is the limit)."""
@@ -434,11 +488,12 @@ class CoreMeasurements(SessionBase):
             var.append(v)
         signal, v = statistics.median(sig), statistics.median(var)
         sigma = math.sqrt(v)
-        rn = self._dark_noise_at(gain_db)
+        rn = self._dark_noise_at(gain_db, mode)
         k = (v - (rn or 0.0) ** 2) / signal if signal > 0 else float("nan")
         ok = k > 0 and math.isfinite(k)
         return {
             "gain_db": round(gain_db, 2),
+            "gain_mode": mode,
             "exposure_us": round(exposure_us, 1),
             "signal_dn": round(signal, 2),
             "sigma_dn": round(sigma, 3),
@@ -449,29 +504,60 @@ class CoreMeasurements(SessionBase):
             "full_well_e": round((self.full_scale - self.black_dn) / k) if ok else None,
         }
 
+    def _gain_writable(self, gain_db: float) -> bool:
+        """Whether ``gain_db`` takes in the current gain mode (the JAI's individual mode keeps
+        Gain read-only: its per-sensor gains replace it)."""
+        self._set(gain_db=gain_db)
+        return abs(float(self._settings().gain_db) - gain_db) < 0.05
+
+    def _gain_sweep(
+        self, mode: str | None, base_exp: float, e_lo: float, e_hi: float, gains: list[float]
+    ) -> tuple[list[dict[str, Any]], list[float]]:
+        """Constant output over ``gains`` (exposure ÷ the gain): the rows, and the gains whose
+        exposure would fall below the minimum (they continue in the low-light row)."""
+        rows: list[dict[str, Any]] = []
+        deferred: list[float] = []
+        g0 = gains[0] if gains else 0.0
+        for g in gains:
+            exp = base_exp / 10 ** ((g - g0) / 20)
+            if exp < e_lo:
+                deferred.append(g)
+                continue
+            if not self._gain_writable(g):
+                break
+            rows.append(self._gain_row(g, min(e_hi, exp), mode))
+        return rows, deferred
+
     def step_noise_gain(self) -> FpResult:
-        """Gain on every camera that has one (also where the design mode pins it): SNR and
-        the photon-transfer estimate per gain at a constant output; gain-mode switches. A
-        prism camera's other gain mode is measured at its 0 dB too (JAI: master 0 dB is about
-        individual +6 dB, which may halve the full well)."""
+        """Every gain step on every camera that has gain (also where the design mode pins it),
+        in each gain mode: SNR and the photon-transfer estimate per gain at a constant output;
+        gain-mode switches; where each mode clips. Gains that would need less than the
+        minimum exposure continue in the low-light row (Derek 2026-10-25: never cut)."""
         self._require("flat")
         if not self.gain_adjustable:
             return self._record(
                 FpResult(step="noise_gain", status="skipped", message="the camera has no gain")
             )
-        g_lo, g_hi = self._range("gain_db")
         e_lo, e_hi = self._lit_range()
         base = self._ref_exposure * NOISE_TARGET / FLAT_TARGET
-        rows: list[dict[str, Any]] = []
-        g = g_lo
-        while g <= g_hi + 1e-6:
-            exp = base / 10 ** ((g - g_lo) / 20)
-            if exp < e_lo:
-                break
-            rows.append(self._gain_row(g, min(e_hi, exp)))
-            g += NOISE_GAIN_STEP_DB
-        modes = self._other_gain_mode(base, e_lo, e_hi)
+        modes = self._gain_modes()
+        tables: dict[str, list[dict[str, Any]]] = {}
+        self.deferred_gains = {}
+        clips: dict[str, dict[str, Any]] = {}
+        for mode in modes:
+            if mode is not None:
+                self._set(advanced={"prism.gain_mode": mode})
+            rows, deferred = self._gain_sweep(mode, base, e_lo, e_hi, self._gain_steps())
+            key = mode or "only"
+            tables[key] = rows
+            if deferred:
+                self.deferred_gains[key] = deferred
+            if mode is not None and rows:
+                clips[key] = self._clip_level(rows[0], e_lo, e_hi)
+        if modes[0] is not None:
+            self._set(advanced={"prism.gain_mode": modes[0]})
         self._set(gain_db=self.mode_gain_db, exposure_us=self._ref_exposure)
+        rows = tables[modes[0] or "only"]
         switches = [
             rows[i]["gain_db"]
             for i in range(1, len(rows))
@@ -479,7 +565,10 @@ class CoreMeasurements(SessionBase):
             and rows[i - 1]["snr"]
             and rows[i]["snr"] > GAIN_SWITCH_GAIN * rows[i - 1]["snr"]
         ]
-        msg = f"{len(rows)} gain steps measured"
+        n_rows = sum(len(t) for t in tables.values())
+        msg = f"{n_rows} gain steps measured" + (
+            f" in {len(tables)} gain modes" if len(tables) > 1 else ""
+        )
         if rows and rows[0]["full_well_e"]:
             msg += (
                 f"; at {rows[0]['gain_db']:g} dB {rows[0]['gain_dn_per_e']} DN/e-, full well "
@@ -488,50 +577,73 @@ class CoreMeasurements(SessionBase):
         if switches:
             at = ", ".join(f"{s:g} dB" for s in switches)
             msg += f"; SNR rises at {at} (possible gain-mode switch)"
-        if modes:
-            msg += f"; {modes['summary']}"
+        summary = self._gain_mode_summary(tables, clips, modes)
+        if summary:
+            msg += f"; {summary['summary']}"
+        if self.deferred_gains:
+            msg += "; " + ", ".join(
+                f"{len(v)} {k} steps continue in the low-light row"
+                for k, v in self.deferred_gains.items()
+            )
         return self._record(
             FpResult(
                 step="noise_gain",
                 status="pass",
                 message=msg,
-                data={"table": rows, "snr_rises_at_db": switches, "gain_modes": modes or None},
+                data={
+                    "table": rows,
+                    "tables": tables,
+                    "deferred": self.deferred_gains,
+                    "snr_rises_at_db": switches,
+                    "gain_modes": summary or None,
+                },
             )
         )
 
-    def _other_gain_mode(self, base: float, e_lo: float, e_hi: float) -> dict[str, Any]:
-        """Prism cameras with ``prism.gain_mode``: the other mode at its lowest gain, same
-        exposure as the first gain row, plus where it clips (exposure steps up to saturation)."""
-        s0 = self._settings()
-        now = s0.advanced.get("prism.gain_mode")
-        if now not in ("master", "individual"):
-            return {}
-        other = "individual" if now == "master" else "master"
-        ref = self._gain_row(self._range("gain_db")[0], min(e_hi, max(e_lo, base)))
-        self._set(advanced={"prism.gain_mode": other})
-        try:
-            g0 = self._range("gain_db")[0]
-            row = self._gain_row(g0, min(e_hi, max(e_lo, base)))
-            rate = row["signal_dn"] / max(row["exposure_us"], 1e-9)
-            span = self.full_scale - self.black_dn
-            top = 0.0
-            for f in (0.9, 1.1, 1.4):
-                exp = min(e_hi, max(e_lo, f * span / max(rate, 1e-12)))
-                self._set(exposure_us=exp)
-                top = max(top, float(np.mean(fm.centre(self._plane()))) - self.black_dn)
-            k = row["gain_dn_per_e"]
-            row["clips_at_dn"] = round(top + self.black_dn, 1)
-            row["full_well_e"] = round(top / k) if k else None
-        finally:
-            self._set(advanced={"prism.gain_mode": now}, gain_db=self.mode_gain_db)
-        ratio = row["signal_dn"] / ref["signal_dn"] if ref["signal_dn"] > 0 else float("nan")
+    def _clip_level(self, row: dict[str, Any], e_lo: float, e_hi: float) -> dict[str, Any]:
+        """Where a gain mode clips: exposure steps up to saturation from its first gain row."""
+        self._set(gain_db=row["gain_db"])
+        rate = row["signal_dn"] / max(row["exposure_us"], 1e-9)
+        span = self.full_scale - self.black_dn
+        top = 0.0
+        for f in (0.9, 1.1, 1.4):
+            self._set(exposure_us=min(e_hi, max(e_lo, f * span / max(rate, 1e-12))))
+            top = max(top, float(np.mean(fm.centre(self._plane()))) - self.black_dn)
+        k = row["gain_dn_per_e"]
         return {
-            now: ref,
-            other: row,
+            "clips_at_dn": round(top + self.black_dn, 1),
+            "full_well_e": round(top / k) if k else None,
+        }
+
+    def _gain_mode_summary(
+        self,
+        tables: dict[str, list[dict[str, Any]]],
+        clips: dict[str, dict[str, Any]],
+        modes: list[str | None],
+    ) -> dict[str, Any]:
+        """Prism cameras: the two gain modes at their lowest gain, side by side."""
+        if len(modes) < 2 or modes[0] is None or modes[1] is None:
+            return {}
+        a, b = modes[0], modes[1]
+        ra, rb = tables.get(a) or [], tables.get(b) or []
+        if not ra or not rb:
+            return {}
+        first_a, first_b = dict(ra[0]), dict(rb[0])
+        first_a.update(clips.get(a, {}))
+        first_b.update(clips.get(b, {}))
+        ratio = (
+            first_b["signal_dn"] / first_a["signal_dn"]
+            if first_a["signal_dn"] > 0
+            else float("nan")
+        )
+        return {
+            a: first_a,
+            b: first_b,
             "signal_ratio": round(ratio, 3),
-            "summary": f"gain mode {other} at {row['gain_db']:g} dB gives {ratio:.2f}× the "
-            f"signal of {now} at {ref['gain_db']:g} dB; full well ≈ {row['full_well_e']} e- "
-            f"(clips at {row['clips_at_dn']:.0f} DN) vs ≈ {ref['full_well_e']} e-",
+            "summary": f"gain mode {b} at {first_b['gain_db']:g} dB gives {ratio:.2f}× the "
+            f"signal of {a} at {first_a['gain_db']:g} dB; full well ≈ "
+            f"{first_b.get('full_well_e')} e- (clips at {first_b.get('clips_at_dn', 0):.0f} DN) "
+            f"vs ≈ {first_a.get('full_well_e')} e-",
         }
 
     def step_user_sets(self) -> FpResult:

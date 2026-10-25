@@ -216,30 +216,32 @@ class Catalog:
         *,
         vendor: str | None = None,
         sensor: str | None = None,
-        shutter: str = "unknown",
-        colour: str = "unknown",
-        hdr: bool = False,
+        shutter: str | None = None,
+        colour: str | None = None,
+        hdr: bool | None = None,
         design_mode: str | None = None,
         notes: str | None = None,
         actor: Actor = "human",
         reason: str | None = None,
     ) -> bool:
+        """Create or update a camera model; a value left None keeps what the row has."""
         if MODEL_RE.fullmatch(model_id) is None:
             raise CatalogError(f"invalid camera model {model_id!r}")
+        values = {
+            "vendor": vendor,
+            "sensor": sensor,
+            "shutter": shutter,
+            "colour": colour,
+            "hdr": None if hdr is None else int(hdr),
+            "design_mode": design_mode,
+            "notes": notes,
+        }
         with self.transaction() as conn:
             return self._write(
                 conn,
                 "camera_models",
                 {"id": model_id},
-                {
-                    "vendor": vendor,
-                    "sensor": sensor,
-                    "shutter": shutter,
-                    "colour": colour,
-                    "hdr": int(hdr),
-                    "design_mode": design_mode,
-                    "notes": notes,
-                },
+                {k: v for k, v in values.items() if v is not None},
                 actor,
                 reason,
             )
@@ -255,6 +257,8 @@ class Catalog:
         actor: Actor = "human",
         reason: str | None = None,
     ) -> bool:
+        """Create or update a camera; a value left None keeps what the row has."""
+        values = {"model_id": model_id, "firmware": firmware, "location": location, "notes": notes}
         with self.transaction() as conn:
             if (
                 conn.execute("SELECT 1 FROM camera_models WHERE id = ?", (model_id,)).fetchone()
@@ -265,7 +269,7 @@ class Catalog:
                 conn,
                 "cameras",
                 {"serial": serial},
-                {"model_id": model_id, "firmware": firmware, "location": location, "notes": notes},
+                {k: v for k, v in values.items() if v is not None},
                 actor,
                 reason,
             )

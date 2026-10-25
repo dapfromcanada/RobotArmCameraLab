@@ -93,10 +93,10 @@ def _rows(ses: FingerprintSession) -> list[str]:
 
 def test_modules_follow_the_sensor_type(ses: FingerprintSession) -> None:
     _replan(ses, "mono", hdr=False)  # e.g. the TRI089S-M: core only
-    assert _rows(ses) == ["cap", "diffuser", "lens", "finish"]
+    assert _rows(ses) == ["cap", "diffuser", "low_light", "finish"]  # no lens picked yet
     assert ses.plan["diffuser"].measures == ("timing", "flat", "noise_gain")
     assert "colour" not in ses.plan["diffuser"].instruction
-    assert ses.plan["lens"].label == "3. Lens / iris" and ses.plan["lens"].can_skip
+    assert ses.plan["low_light"].label == "3. Low light" and ses.plan["low_light"].can_skip
     assert ses.plan["finish"].label == "4. Iris back: finish"
     assert ses.plan["finish"].checks == (  # no lens picked yet: the end stop by name
         "Iris fully open",
@@ -108,14 +108,14 @@ def test_modules_follow_the_sensor_type(ses: FingerprintSession) -> None:
     assert ses.plan["finish"].checks[0] == "Iris at f/1.4 (fully open)"
 
     _replan(ses, "prism", hdr=False)  # e.g. the JAI: core + colour
-    assert _rows(ses) == ["cap", "diffuser", "lens", "finish"]
+    assert _rows(ses)[:2] == ["cap", "diffuser"] and _rows(ses)[-2:] == ["low_light", "finish"]
     assert ses.plan["diffuser"].measures == ("timing", "flat", "colour", "noise_gain")
     assert "the colour planes" in ses.plan["diffuser"].instruction
 
     _replan(ses, "bayer", hdr=True)  # e.g. the TRI054S without a recipe: core + colour + HDR
-    assert _rows(ses) == ["cap", "diffuser", "light_2", "lens", "finish"]
+    assert _rows(ses)[:3] == ["cap", "diffuser", "light_2"]
     assert ses.plan["light_2"].measures == ("channels_a",)
-    assert ses.plan["finish"].label == "5. Iris back: finish"
+    assert ses.plan["finish"].label.endswith(". Iris back: finish")
 
 
 def test_bayer_camera_measures_its_colour_planes(
@@ -142,10 +142,10 @@ def test_bayer_camera_measures_its_colour_planes(
     assert colour["green_imbalance_pct"] is not None
     assert len(colour["repeats"]["relative_to_green.R"]["values"]) == 3
     assert "colour planes: R/G" in dif.message
-    cam.iris_transmission = 0.25  # type: ignore[attr-defined]
-    lens = ses.run("lens", ses.plan["lens"].checks)
+    cam.iris_transmission = ses._expected_at(2.8)  # type: ignore[attr-defined]
+    lens = ses.run("lens_2", ses.plan["lens_2"].checks)  # the Kowa's f/2.8 mark
     assert lens.ok, lens.message
-    shading = lens.data["lens_iris"]
+    shading = lens.data["lens_iris_2"]
     assert set(shading["corner_ratio"]) == {"R", "Gr", "Gb", "B"}
     assert shading["corner_colour_cast_pct"] < 2  # the sim shades every colour alike
     assert "colour cast at the corners" in lens.message

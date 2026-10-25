@@ -189,8 +189,11 @@ class HdrMeasurements(SessionBase):
     def step_light_back(self) -> FpResult:
         """The bench is back at the reference light (iris fully open): verified."""
         self._require("flat", *(m for m in self._planned() if m in STAGE_STEPS))
-        lens = self.results.get("lens_iris")
-        moved = bool(self._channels) or (lens is not None and lens.status == "pass")
+        moved = bool(self._channels) or any(
+            r.status == "pass"
+            for m, r in self.results.items()
+            if m == "low_light" or m.startswith("lens_iris")
+        )
         if not self._light_changes or not moved:
             return self._record(
                 FpResult(step="light_back", status="skipped", message="the light never changed")

@@ -48,13 +48,7 @@ BUTTON_HEIGHT = 36
 WINDOW_TITLE = "Camera fingerprint"
 #: Row labels until the session's plan arrives (the plan's labels name the light).
 DEFAULT_LABELS: dict[FpSetup, str] = {
-    "cap": "1. Lens cap on",
-    "diffuser": "2. Diffuser on",
-    "light_2": "3. Light change",
-    "light_3": "4. Light change",
-    "light_4": "5. Light change",
-    "lens": "6. Lens / iris",
-    "finish": "7. Finish",
+    s: f"{i}. {s.replace('_', ' ')}" for i, s in enumerate(FP_SETUPS, 1)
 }
 STATE_PENDING = "pending"
 STATE_RUNNING = "running"

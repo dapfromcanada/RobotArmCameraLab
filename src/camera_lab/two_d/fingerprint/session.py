@@ -25,18 +25,24 @@ Steps (each passes or stops and says what the human must do):
 6. ``light_back`` — the bench back at the reference light (iris fully open), verified
                     against the light measured in the flat step
 7. ``noise_gain`` — every camera with a gain control (also where the mode pins it):
-                    SNR and photon transfer (DN/e-, read noise, full well) per gain;
-                    gain-mode switches; prism cameras: the other gain mode at 0 dB
-   ``lens_iris``  — the lens row: iris closed 2 stops (light checked), vignetting and
-                    colour shading per plane against the diffuser row; skippable
+                    every 3 dB step in each gain mode at a constant output, photon
+                    transfer per gain, gain-mode switches, where each mode clips; steps
+                    that need less than the minimum exposure go to the low-light row
+   ``lens_iris_N`` — one row per marked stop between the lens's end stops: the light
+                    the stop passes (measured, the check tolerance halfway to the next
+                    stop), vignetting and per-colour shading
+   ``low_light``  — iris fully closed: signals from ~1 read noise up, gain at a fixed
+                    exposure, the deferred gain steps, N-frame averaging (√N)
 8. ``user_sets``  — what survives a restart: markers → a boot user set → reboot →
                     kept / lost. Boot-set cameras use User Set 2; cameras without (JAI)
                     User Set 1, refilled with factory Default afterwards
-
-Every row records the camera temperature and needs the Lens / iris text.
 9. ``report``     — ``fingerprint.yaml`` + ``report.md`` in a dated folder under
-                    ``WS/config/camera_fingerprints/<serial>/``; the camera is
-                    restored from the identity backup
+                    ``WS/config/camera_fingerprints/<serial>/``, then the run into the
+                    catalog (SQLite); the camera is restored from the identity backup
+
+Darks: every exposure from 1 ms to 2 s, every gain step in each gain mode. Every row
+records the camera temperature and the lens / iris camera_lab filled in (picked, never
+typed).
 
 Strict procedure (Derek 2026-10-22): every step has a checklist of what the human must
 have done; :meth:`FingerprintSession.run` refuses a step until each item is confirmed.
@@ -80,6 +86,7 @@ from camera_lab.two_d.fingerprint.common import (
     FP_STEPS,
     GAIN_SWITCH_GAIN,
     LENS_MAX_CHARS,
+    LENS_STEPS,
     LIGHT_BACK_TOLERANCE,
     LIGHT_SETUPS,
     LIGHT_TOLERANCE,
@@ -107,6 +114,7 @@ from camera_lab.two_d.fingerprint.common import (
 from camera_lab.two_d.fingerprint.core import CoreMeasurements
 from camera_lab.two_d.fingerprint.hdr import HdrMeasurements
 from camera_lab.two_d.fingerprint.lens import LensMeasurements
+from camera_lab.two_d.fingerprint.lowlight import LowLightMeasurements
 from camera_lab.two_d.fingerprint.plan import PlanMixin
 from camera_lab.two_d.fingerprint.report import ReportMixin
 
@@ -157,6 +165,7 @@ __all__ = [
 
 class FingerprintSession(
     PlanMixin,
+    LowLightMeasurements,
     CoreMeasurements,
     ColourMeasurements,
     HdrMeasurements,
@@ -186,6 +195,7 @@ class FingerprintSession(
         self.durations = {}
         self.temperatures = {}  # camera °C at the start of each row
         self.gain_adjustable = False
+        self.deferred_gains = {}  # gain steps the bright row left to the low-light row
         self.mode_gain_db = 0.0
         self._light_changes = False
         self.backup_id = None
@@ -306,12 +316,14 @@ class FingerprintSession(
             return self._repeat(self.step_colour, COLOUR_REPEAT_KEYS)
         if m in STAGE_STEPS:
             return self.step_stage(STAGE_STEPS.index(m))
+        if m in LENS_STEPS:
+            return self.step_lens_iris(LENS_STEPS.index(m))
         methods: dict[FpStep, Callable[[], FpResult]] = {
             "identity": self.step_identity,
             "timing": self.step_timing,
             "light_back": self.step_light_back,
             "noise_gain": self.step_noise_gain,
-            "lens_iris": self.step_lens_iris,
+            "low_light": self.step_low_light,
             "user_sets": self.step_user_sets,
             "report": self.step_report,
         }

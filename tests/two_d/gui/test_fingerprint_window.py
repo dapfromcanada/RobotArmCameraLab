@@ -94,13 +94,15 @@ def test_action_needs_an_open_camera(qtbot: QtBot, fp_service: TwoDService) -> N
     win.close()
 
 
-ROWS = ["cap", "diffuser", "light_2", "lens", "finish"]  # sim: HDR-capable, no recipe → discovery
+#: Before a lens is picked (sim: HDR-capable, no recipe → discovery; the lens's stops are not
+#: known yet, so no stop rows)
+ROWS = ["cap", "diffuser", "light_2", "low_light", "finish"]
 
 
 def test_window_opens_with_live_frames(qtbot: QtBot, main: MainWindow) -> None:
     dlg = open_fp(qtbot, main)
     qtbot.waitUntil(dlg.live_view.has_image, timeout=WAIT_MS)
-    assert len(FP_SETUPS) == 7
+    assert len(FP_SETUPS) == 15
     assert dlg.step_row_count() == 5  # unused setups get no row
     assert dlg.row_states() == dict.fromkeys(ROWS, "pending")
     assert not dlg.retry_button.isEnabled()
@@ -188,8 +190,13 @@ def test_full_run_reaches_the_report_without_a_ui_stall(
     run_step(qtbot, dlg, "light_2", "skipped")  # not an HDR camera
     cam = fp_service._open[SIM].camera
     assert not dlg.lens_combo.isEnabled()  # fixed once a row has run
-    cam.iris_transmission = 0.25  # type: ignore[attr-defined]  # the human closes 2 stops
-    run_step(qtbot, dlg, "lens")
+    session = main.worker._fingerprint
+    assert session is not None
+    stop_rows = [s for s, p in session.plan.items() if p.active and s.startswith("lens_")]
+    assert len(stop_rows) == 6  # the Kowa's marks between f/1.4 and f/16
+    for setup in (*stop_rows, "low_light"):  # the human turns the iris mark by mark
+        cam.iris_transmission = session._expected_at(session.plan[setup].f_number)  # type: ignore[attr-defined, arg-type]
+        run_step(qtbot, dlg, setup)
     cam.iris_transmission = 1.0  # type: ignore[attr-defined]
     run_step(qtbot, dlg, "finish")
     qtbot.waitUntil(lambda: dlg.next_step is None, timeout=WAIT_MS)

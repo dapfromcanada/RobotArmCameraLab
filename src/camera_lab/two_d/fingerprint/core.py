@@ -269,7 +269,10 @@ class CoreMeasurements(SessionBase):
         )
         ref_exp = min(max(DARK_REF_EXPOSURE_US, e_lo), e_hi)
         hot_exp = min(exposures, key=lambda e: abs(math.log(e / HOT_PIXEL_EXPOSURE_US)))
-        self._set(gain_db=g_design, exposure_us=exposures[-1])
+        # the cap check at 100 ms: at 2 s the sensor's own dark signal is uneven enough to fail
+        # it with no light at all (JAI 2026-10-25); a cap that leaks only at long exposures shows
+        # as dark current in the results
+        self._set(gain_db=g_design, exposure_us=hot_exp)
         if not fm.looks_dark(self._plane(), self.full_scale):
             return self._record(
                 FpResult(

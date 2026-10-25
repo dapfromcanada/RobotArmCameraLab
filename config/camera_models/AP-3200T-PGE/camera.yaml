@@ -116,10 +116,10 @@ controls:
     boot_set: false
 timing:
   fps_full_frame:
-    RGB8: 12.0
-    RGB10V1Packed: 9.0
-    RGB10p32: 9.0
-    RGB12V1Packed: 8.0
+    RGB8: 12.03
+    RGB10V1Packed: 9.02
+    RGB10p32: 9.02
+    RGB12V1Packed: 8.02
   sensor_max_fps: 24.2
   row_time_us: null
   pipeline:
@@ -153,19 +153,19 @@ performance:
   saturation_dn: 4094
   runs: 3
   units: 1
-  black_dn: 100
-  read_noise_dn: 1.71
+  black_dn: 100.0
+  read_noise_dn: 1.751
   read_noise_e: 1.9
-  row_noise_dn: 0.29
+  row_noise_dn: 0.3113
   dsnu_dn: 3.6
-  system_gain_dn_per_e: 0.893
-  full_well_e: 4470
+  system_gain_dn_per_e: 0.8933
+  full_well_e: 4471.0
   dynamic_range_db: 67.2
-  dynamic_range_stops: 11.2
+  dynamic_range_stops: 11.16
   dark_current_dn_s: 0
-  linearity_error_pct: 0.11
+  linearity_error_pct: 0.1366
   peak_snr: 64.8
-  prnu_pct: 0.69
+  prnu_pct: 0.6823
   vignetting_corner_ratio:
     f2.8: 0.82
     f4: 0.93
@@ -179,25 +179,25 @@ performance:
     b_dn: 0.893
   snr_vs_signal:
     monotonic: true
-    points:
-      '0.021': 9.6
-      '0.031': 11.8
-      '0.054': 15.7
-      '0.077': 18.9
-      '0.116': 23.2
-      '0.155': 26.7
-      '0.233': 32.9
-      '0.312': 37.9
-      '0.39': 42.4
-      '0.469': 46.4
-      '0.548': 50.1
-      '0.626': 53.5
-      '0.705': 56.7
-      '0.785': 59.9
-      '0.904': 64.8
     best:
       level: 0.904
       snr: 64.8
+    points:
+      '0.0314': 11.9
+      '0.0316': 11.9
+      '0.0537': 15.7
+      '0.0768': 18.8
+      '0.1159': 23.1
+      '0.1552': 26.8
+      '0.2319': 32.7
+      '0.3106': 37.8
+      '0.3892': 42.2
+      '0.4685': 46.4
+      '0.547': 50.0
+      '0.6263': 53.6
+      '0.7056': 56.7
+      '0.7844': 59.7
+      '0.9033': 64.3
   quantization:
   - from_level: 0.0
     step_dn: 1

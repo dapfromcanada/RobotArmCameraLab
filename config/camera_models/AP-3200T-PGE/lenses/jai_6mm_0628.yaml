@@ -8,32 +8,38 @@ stops:
   end_stop: open
   light_vs_open: 1.0
   corner_ratio:
-    B: 0.8272202391109977
-    G: 0.8191890493836844
-    R: 0.8159388662881242
+    B: 0.8268065118473734
+    G: 0.8186777891945904
+    R: 0.815557523733551
 - f_number: 4.0
   end_stop: null
-  light_vs_open: null
-  corner_ratio: {}
+  light_vs_open: 0.38499267165522366
+  corner_ratio:
+    B: 1.0601450360805729
+    G: 1.0549802241668513
+    R: 1.0533630045832545
 - f_number: 5.6
   end_stop: null
-  light_vs_open: 0.1979367778077733
+  light_vs_open: 0.2033764028837727
   corner_ratio:
-    B: 1.0504420951415938
-    G: 1.0485767681887226
-    R: 1.0445344865431876
+    B: 1.0497779567884
+    G: 1.047547646260516
+    R: 1.043443078819931
 - f_number: 8.0
   end_stop: null
-  light_vs_open: null
+  light_vs_open: 0.08775256662429748
   corner_ratio:
-    B: 1.0358993324384402
-    G: 1.0378578035206558
-    R: 1.035018627446018
+    B: 1.0400870567529472
+    G: 1.0399139469554806
+    R: 1.0358124516524092
 - f_number: 11.0
   end_stop: null
-  light_vs_open: null
-  corner_ratio: {}
+  light_vs_open: 0.05521617498543895
+  corner_ratio:
+    B: 1.0332989068996916
+    G: 1.0353719994183517
+    R: 1.0311015553905312
 - f_number: 16.0
   end_stop: closed
-  light_vs_open: null
+  light_vs_open: 0.021157224955865566
   corner_ratio: {}

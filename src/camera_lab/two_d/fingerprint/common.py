@@ -228,6 +228,10 @@ class StepPlan:
     measures: tuple[FpStep, ...] = ()
     active: bool = True
     can_skip: bool = False
+    #: The iris the row runs at (camera_lab fills in the lens / iris text from it).
+    f_number: float | None = None
+    #: The human picks the stop (HDR discovery rows: the light each channel asks for).
+    iris_pick: bool = False
 
 
 class FpResult(BaseModel):

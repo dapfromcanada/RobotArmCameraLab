@@ -55,7 +55,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from camera_lab.two_d.errors import InvalidRequestError
-from camera_lab.two_d.fingerprint.bench import load_bench
+from camera_lab.two_d.fingerprint.bench import lens_choices, load_bench
 
 if TYPE_CHECKING:
     from camera_lab.two_d.service import Actor, TwoDService
@@ -174,6 +174,7 @@ class FingerprintSession(
         root: Path | None = None,
         bench_path: Path | None = None,
         reset: bool = True,
+        catalog_path: Path | None = None,
     ) -> None:
         self.reset_on_start = reset  # factory Default, then the design mode
         self.service = service
@@ -200,7 +201,7 @@ class FingerprintSession(
         self.channel_fmt = ""
         self._channel_black = {}
         self._channels = {}  # measured channels, kept across runs
-        self.lens = ""  # lens / iris (from the recipe, or as the human states it)
+        self.lens = ""  # lens / iris text of the row (camera_lab fills it in, never typed)
         self._last_fraction = 0.0  # signal / span at the end of the last exposure search
         self._ref_rate = 0.0  # own-output signal per µs at the reference light (flat step)
         self._arrays = {}
@@ -219,34 +220,74 @@ class FingerprintSession(
         self._row_noise_dn2 = {}
         self.lens_label = ""
         self._open_f = 0.0
-        if self.recipe is not None:
-            self._check_recipe()
-            self.lens = self._lens_at(self.recipe.reference)
+        self.lens_id = None
+        self.lens_spec = None
+        self.iris_f = None  # discovery rows: the stop the human picked
+        self.camera_model = service._open[self.camera_id].camera.info.model
+        self.catalog_path = catalog_path
+        self.lens_choices = lens_choices(self.camera_model, self.bench, catalog_path)
+        default = self.recipe.lens if self.recipe is not None else None
+        if default is None:
+            tested = [lid for lid, _, tried in self.lens_choices if tried]
+            only = [lid for lid, _, _ in self.lens_choices]
+            default = tested[0] if len(tested) == 1 else only[0] if len(only) == 1 else None
+        if default is not None:
+            self.select_lens(default)
+        else:
+            self.plan = self._build_plan()
+
+    def select_lens(self, lens_id: str) -> None:
+        """The lens being tested, picked from :attr:`lens_choices` (never typed). Fixed once a
+        row has run; with a recipe the recipe's stops must be marked on the picked lens."""
+        if any(r.status == "pass" for r in self.setup_results.values()):
+            raise InvalidRequestError(
+                "the lens is fixed once a row has run: start a new fingerprint"
+            )
+        specs = {lid: spec for lid, spec, _ in self.lens_choices}
+        spec = specs.get(lens_id)
+        if spec is None:
+            raise InvalidRequestError(
+                f"lens {lens_id!r} is not in the catalog (known: {', '.join(specs) or 'none'}): "
+                "add it first"
+            )
+        r = self.recipe
+        if r is not None:
+            if self.bench is None:
+                raise InvalidRequestError(
+                    "the camera profile has a fingerprint recipe but there is no "
+                    "config/fingerprint_bench.yaml"
+                )
+            for light in (r.reference, *r.channel_stages):
+                if light.f_number not in spec.f_stops:
+                    raise InvalidRequestError(
+                        f"recipe f/{light.f_number:g} is not a marked stop of {spec.label} "
+                        f"({', '.join(f'f/{f:g}' for f in spec.f_stops)})"
+                    )
+                self.bench.light_ratio(light.dimmer, light.f_number, r.reference.dimmer, 1.0)
+        self.lens_id, self.lens_spec = lens_id, spec
+        self.lens_label, self._open_f = spec.label, spec.open_f
+        self.lens = self._lens_at(self._reference())
+        self.iris_f = self._reference().f_number  # discovery rows start where the diffuser was
         self.plan = self._build_plan()
 
-    def _check_recipe(self) -> None:
-        r = self.recipe
-        if r is None:  # pragma: no cover - only called with a recipe
-            return
-        if self.bench is None:
+    def reload_lenses(self) -> None:
+        """Read the lens list again (after a lens was added to the catalog)."""
+        self.lens_choices = lens_choices(self.camera_model, self.bench, self.catalog_path)
+
+    def set_iris(self, f_number: float) -> None:
+        """Discovery rows only (an HDR camera without a recipe): the marked stop the human set,
+        picked from the lens's stops."""
+        if self.lens_spec is None or f_number not in self.lens_spec.f_stops:
             raise InvalidRequestError(
-                "the camera profile has a fingerprint recipe but there is no "
-                "config/fingerprint_bench.yaml"
-            )
-        lens = self.bench.lenses.get(r.lens)
-        if lens is None:
-            raise InvalidRequestError(
-                f"recipe lens {r.lens!r} is not in fingerprint_bench.yaml "
-                f"(known: {', '.join(self.bench.lenses) or 'none'})"
-            )
-        self.lens_label, self._open_f = lens.label, lens.open_f
-        for light in (r.reference, *r.channel_stages):
-            if light.f_number not in lens.f_stops:
-                raise InvalidRequestError(
-                    f"recipe f/{light.f_number:g} is not a marked stop of {lens.label} "
-                    f"({', '.join(f'f/{f:g}' for f in lens.f_stops)})"
+                "pick a marked stop of the lens"
+                + (
+                    f" ({', '.join(f'f/{f:g}' for f in self.lens_spec.f_stops)})"
+                    if self.lens_spec
+                    else ""
                 )
-            self.bench.light_ratio(light.dimmer, light.f_number, r.reference.dimmer, 1.0)
+            )
+        self.iris_f = f_number
+        self.lens = f"{self.lens_label}, f/{f_number:g}"
 
     def _measure(self, m: FpStep) -> FpResult:
         """One measurement; darks and the flat run REPEATS times (HDR channels repeat inside)."""
@@ -308,11 +349,17 @@ class FingerprintSession(
             return self._record_setup(
                 FpResult(step=setup, status="skipped", message=plan.instruction)
             )
-        if not self.lens.strip():
+        if self.lens_spec is None:
             raise InvalidRequestError(
-                "write the lens and iris in the Lens / iris box first (it is recorded with "
-                "every row)"
+                "pick the lens being tested first (or add it: Add a lens); it is recorded with "
+                "every row"
             )
+        if plan.iris_pick:
+            if self.iris_f is None:
+                raise InvalidRequestError("pick the stop the iris is set to first")
+            self.lens = f"{self.lens_label}, f/{self.iris_f:g}"
+        elif plan.f_number is not None:
+            self.lens = f"{self.lens_label}, f/{plan.f_number:g}"
         temp = self._temperature()
         if temp is not None:
             self.temperatures[setup] = temp
@@ -367,11 +414,6 @@ class FingerprintSession(
         return self._record_setup(
             FpResult(step=setup, status="skipped", message=msg, data={"operator_skip": why})
         )
-
-    def set_lens(self, text: str) -> None:
-        """Lens and iris as the human states them (no recipe only: a recipe dictates them)."""
-        if self.recipe is None:
-            self.lens = " ".join(text.split())[:LENS_MAX_CHARS]
 
     def next_step(self) -> FpSetup | None:
         """The setup that is due (inactive setups are skipped on the way)."""

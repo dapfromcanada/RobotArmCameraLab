@@ -6,6 +6,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any
 
+import click
 import typer
 
 from camera_lab.cli_support import (
@@ -829,15 +830,37 @@ def fingerprint(ctx: typer.Context, camera: CameraArg) -> None:
         typer.echo(f"[{mark}] {ses.plan[res.step].label}: {res.message}")
         return bool(res.ok)
 
-    if ses.recipe is not None:
-        typer.echo(f"Light recipe from the camera profile; lens {ses.lens_label}.")
+    def pick(title: str, options: list[str]) -> int:
+        """A numbered pick (nothing is typed but the number)."""
+        typer.echo(title)
+        for i, text in enumerate(options, 1):
+            typer.echo(f"  {i}. {text}")
+        return int(typer.prompt("  Number", type=click.IntRange(1, len(options)))) - 1
+
+    if not ses.lens_choices:
+        raise typer.BadParameter(
+            "the catalog has no lens for this camera: add it first (GUI: Add a lens)"
+        )
+    if ses.lens_id is None:
+        choices = ses.lens_choices
+        n = pick(
+            "Which lens is on the camera?",
+            [
+                spec.label + (" (tested on this model)" if tried else "")
+                for _, spec, tried in choices
+            ],
+        )
+        ses.select_lens(choices[n][0])
+    typer.echo(
+        f"Lens: {ses.lens_label}"
+        + (" (light recipe from the camera profile)" if ses.recipe else "")
+    )
     while (step := ses.next_step()) is not None:
         plan = ses.plan[step]
         typer.echo(f"\n{plan.label}\n  {plan.instruction}")
-        while ses.recipe is None and plan.active:  # recorded with every row: never empty
-            ses.set_lens(typer.prompt("Lens, iris and light now", default=ses.lens or None))
-            if ses.lens:
-                break
+        if plan.iris_pick and ses.lens_spec is not None:
+            stops = list(ses.lens_spec.f_stops)
+            ses.set_iris(stops[pick("Which stop is the iris set to?", [f"f/{f:g}" for f in stops])])
         for check in plan.checks:  # every item must be confirmed (strict procedure)
             while not typer.confirm(f"  {check}?", default=False):
                 typer.echo("  Do it first, then answer yes (Ctrl-C stops the fingerprint).")

@@ -34,6 +34,22 @@ class ReportMixin(SessionBase):
             n += 1
         return folder
 
+    def _setups_for_report(self) -> dict[str, Any]:
+        """Each row's status. The row that writes the report is still running: everything
+        before the report passed, so it is recorded as passing (2026-10-25: a Retry of the
+        finish row left its earlier STOP in the file)."""
+        out: dict[str, Any] = {
+            s: r.model_dump(mode="json", exclude={"data"}) for s, r in self.setup_results.items()
+        }
+        for setup, plan in self.plan.items():
+            if "report" in plan.measures:
+                out[setup] = {
+                    "step": setup,
+                    "status": "pass",
+                    "message": "this row wrote the report (every measurement before it passed)",
+                }
+        return out
+
     def step_report(self) -> FpResult:
         self._require(*(m for m in self._planned() if m != "report"))
         folder = self._folder()
@@ -63,10 +79,7 @@ class ReportMixin(SessionBase):
             "temperatures_c": dict(self.temperatures),
             **{s: self.results[s].data for s in FP_STEPS if s in self.results and s != "report"},
             "hdr_channels": dict(self._channels),
-            "setups": {
-                s: r.model_dump(mode="json", exclude={"data"})
-                for s, r in self.setup_results.items()
-            },
+            "setups": self._setups_for_report(),
             "recipe": self.recipe.model_dump(mode="json") if self.recipe is not None else None,
         }
         (folder / "fingerprint.yaml").write_text(

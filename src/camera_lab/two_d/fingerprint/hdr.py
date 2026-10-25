@@ -195,8 +195,8 @@ class HdrMeasurements(SessionBase):
             return self._record(
                 FpResult(step="light_back", status="skipped", message="the light never changed")
             )
-        if self.recipe is not None:
-            self.lens = self._lens_at(self.recipe.reference)
+        if self.lens_spec is not None:
+            self.lens = self._lens_at(self._reference())
         ratio, why = self._check_light(1.0, LIGHT_BACK_TOLERANCE, "the reference (flat step)")
         self._set(exposure_us=self._ref_exposure)
         data = {"measured_vs_reference": ratio, "lens": self.lens}

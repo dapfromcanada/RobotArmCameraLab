@@ -57,10 +57,17 @@ def open_fp(qtbot: QtBot, main: MainWindow) -> FingerprintWindow:
     return dlg
 
 
+def pick_lens(qtbot: QtBot, dlg: FingerprintWindow, name: str = "Kowa 8 mm") -> None:
+    """The human picks the lens on the camera from the list (never typed)."""
+    index = next(i for i, text in enumerate(dlg.lens_items()) if text.startswith(name))
+    dlg._on_lens_combo_activated(index)
+    qtbot.waitUntil(lambda: dlg._lens_id is not None and not dlg._busy, timeout=WAIT_MS)
+
+
 def press(qtbot: QtBot, dlg: FingerprintWindow) -> None:
     """Tick the checklist (the human confirms) and press Run step / Retry."""
-    if not dlg.lens_edit.text():
-        dlg.lens_edit.setText("sim lens, f/2")
+    if dlg._lens_id is None:
+        pick_lens(qtbot, dlg)
     dlg.tick_all()
     button = dlg.retry_button if dlg.failed_step is not None else dlg.run_step_button
     qtbot.waitUntil(button.isEnabled, timeout=WAIT_MS)
@@ -103,19 +110,21 @@ def test_window_opens_with_live_frames(qtbot: QtBot, main: MainWindow) -> None:
 def test_run_needs_every_checklist_item(qtbot: QtBot, main: MainWindow) -> None:
     dlg = open_fp(qtbot, main)
     items = dlg.checklist()
-    assert any(i.startswith("Iris fully open") for i in items) and "Lens cap on" in items
+    assert "Iris fully open" in items and "Lens cap on" in items
     assert "Focus: not needed" in items
-    assert not dlg.run_step_button.isEnabled()
+    assert dlg.lens_items()[0] == "pick the lens on the camera"  # two lenses: nothing assumed
+    dlg.tick_all()
+    assert not dlg.run_step_button.isEnabled()  # no lens picked
+    pick_lens(qtbot, dlg)
+    assert "Iris at f/1.4 (fully open)" in dlg.checklist()  # the checklist names the stop
+    assert "Kowa 8 mm, f/1.4" in dlg.lens_text_label.text()
+    assert not dlg.run_step_button.isEnabled()  # a new checklist after the pick
     boxes = dlg._check_boxes
     for box in boxes[:-1]:
         box.setChecked(True)
     assert not dlg.run_step_button.isEnabled()  # one item left
     boxes[-1].setChecked(True)
-    assert not dlg.run_step_button.isEnabled()  # the Lens / iris box is empty
-    dlg.lens_edit.setText("sim lens, f/2")
     assert dlg.run_step_button.isEnabled()
-    dlg.lens_edit.setText("  ")
-    assert not dlg.run_step_button.isEnabled()
 
 
 def test_instruction_changes_per_setup(
@@ -171,18 +180,17 @@ def test_full_run_reaches_the_report_without_a_ui_stall(
 ) -> None:
     dlg = open_fp(qtbot, main)
     main.heartbeat.reset()
-    dlg.lens_edit.setText("sim lens, f/2.8")
+    pick_lens(qtbot, dlg)
     set_scene(fp_service, "cap")
     run_step(qtbot, dlg, "cap")
     set_scene(fp_service, "flat")
     run_step(qtbot, dlg, "diffuser")
     run_step(qtbot, dlg, "light_2", "skipped")  # not an HDR camera
     cam = fp_service._open[SIM].camera
+    assert not dlg.lens_combo.isEnabled()  # fixed once a row has run
     cam.iris_transmission = 0.25  # type: ignore[attr-defined]  # the human closes 2 stops
-    dlg.lens_edit.setText("sim lens, f/5.6")
     run_step(qtbot, dlg, "lens")
     cam.iris_transmission = 1.0  # type: ignore[attr-defined]
-    dlg.lens_edit.setText("sim lens, f/2.8")
     run_step(qtbot, dlg, "finish")
     qtbot.waitUntil(lambda: dlg.next_step is None, timeout=WAIT_MS)
     texts = "\n".join(dlg.result_texts())
@@ -194,7 +202,7 @@ def test_full_run_reaches_the_report_without_a_ui_stall(
     folder = dlg.folder_label.text()
     assert str(tmp_path / "fp") in folder
     doc = yaml.safe_load((Path(folder.removeprefix("Folder: ")) / "fingerprint.yaml").read_text())
-    assert doc["identity"]["lens"] == "sim lens, f/2.8"
+    assert doc["identity"]["lens"] == "Kowa 8 mm, f/1.4"
     assert "complete" in dlg.message_text().lower()
     dlg.copy_button.click()
     from PySide6.QtGui import QGuiApplication
@@ -242,3 +250,41 @@ def test_closing_the_window_keeps_the_camera_open(
     again = open_fp(qtbot, main)
     assert again is not dlg
     assert again.row_states() == dict.fromkeys(ROWS, "pending")
+
+
+def test_add_a_lens_puts_it_in_the_catalog_and_picks_it(
+    qtbot: QtBot, main: MainWindow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from PySide6.QtWidgets import QDialog
+
+    from camera_lab.two_d.catalog import Catalog
+    from camera_lab.two_d.gui.widgets.add_lens_dialog import AddLensDialog
+
+    dlg = open_fp(qtbot, main)
+    add = AddLensDialog()
+    qtbot.addWidget(add)
+    ok = add.buttons.button(add.buttons.StandardButton.Ok)
+    assert not ok.isEnabled()  # name and two stops needed
+    add.name_edit.setText("  Fuji 12 mm   HF12XA ")
+    add.stop_boxes[1.6 if 1.6 in add.stop_boxes else 2.0].setChecked(True)
+    assert not ok.isEnabled()
+    add.stop_boxes[16.0].setChecked(True)
+    assert ok.isEnabled()
+    assert add.values() == ("Fuji 12 mm HF12XA", 8.0, "C", (2.0, 16.0))
+
+    def fake_exec(self: AddLensDialog) -> int:
+        self.name_edit.setText("Fuji 12 mm HF12XA")
+        self.focal_spin.setValue(12.0)
+        for f in (2.0, 2.8, 4.0, 5.6, 8.0, 11.0, 16.0):
+            self.stop_boxes[f].setChecked(True)
+        return int(QDialog.DialogCode.Accepted.value)
+
+    monkeypatch.setattr(AddLensDialog, "exec", fake_exec)
+    dlg._on_add_lens_button_clicked()
+    qtbot.waitUntil(lambda: dlg._lens_id == "fuji_12mm_hf12xa" and not dlg._busy, timeout=WAIT_MS)
+    assert any(t.startswith("Fuji 12 mm HF12XA") for t in dlg.lens_items())
+    assert "Iris at f/2 (fully open)" in dlg.checklist()
+    with Catalog() as cat:
+        lens = cat.lens("fuji_12mm_hf12xa")
+        assert lens is not None and (lens.open_f, lens.closed_f, lens.focal_mm) == (2.0, 16.0, 12.0)
+        assert any(c["actor"] == "human" and c["tbl"] == "lenses" for c in cat.changes(20))

@@ -171,11 +171,16 @@ class FingerprintOutcome:
 
     result: FpResult | None
     next_step: FpSetup | None
-    #: The session's plan (labels, instructions, checklists) and whether a light recipe
-    #: dictates the lens and iris (then the Lens / iris box is read-only).
+    #: The session's plan (labels, instructions, checklists), the lens / iris text camera_lab
+    #: filled in, and the lens pick list: (id, label, tested on this camera model).
     plan: dict[FpSetup, StepPlan] | None = None
     lens: str = ""
     has_recipe: bool = False
+    lenses: tuple[tuple[str, str, bool], ...] = ()
+    lens_id: str | None = None
+    lens_locked: bool = False  # fixed once a row has run
+    iris_stops: tuple[float, ...] = ()  # the picked lens's marked stops (discovery rows)
+    iris_f: float | None = None
 
 
 @dataclass(frozen=True)
@@ -321,6 +326,9 @@ class CameraWorker(QObject):
             "setup_save": self._job_setup_save,
             "fingerprint_create": self._job_fingerprint_create,
             "fingerprint_step": self._job_fingerprint_step,
+            "fingerprint_select_lens": self._job_fingerprint_select_lens,
+            "fingerprint_set_iris": self._job_fingerprint_set_iris,
+            "catalog_add_lens": self._job_catalog_add_lens,
         }
         self._setup: SetupSession | None = None
         self._fingerprint: FingerprintSession | None = None
@@ -596,20 +604,54 @@ class CameraWorker(QObject):
             dict(session.plan),
             session.lens,
             session.recipe is not None,
+            tuple((lid, spec.label, tried) for lid, spec, tried in session.lens_choices),
+            session.lens_id,
+            any(r.status == "pass" for r in session.setup_results.values()),
+            session.lens_spec.f_stops if session.lens_spec is not None else (),
+            session.iris_f,
         )
+
+    def _job_fingerprint_select_lens(self, lens_id: str) -> FingerprintOutcome:
+        session = self._require_fingerprint()
+        session.select_lens(lens_id)
+        return self._fp_outcome(None)
+
+    def _job_fingerprint_set_iris(self, f_number: float) -> FingerprintOutcome:
+        session = self._require_fingerprint()
+        session.set_iris(f_number)
+        return self._fp_outcome(None)
+
+    def _job_catalog_add_lens(
+        self, name: str, focal_mm: float, mount: str, stops: tuple[float, ...]
+    ) -> FingerprintOutcome:
+        """Add a lens to the catalog (the one thing a human enters: copied from the barrel),
+        then pick it for the running fingerprint."""
+        from camera_lab.two_d.catalog import Catalog
+
+        session = self._require_fingerprint()
+        with Catalog(session.catalog_path) as cat:
+            lens_id = cat.add_lens(
+                name,
+                focal_mm=focal_mm,
+                mount=mount,
+                stops=stops,
+                actor="human",
+                reason="Add a lens (fingerprint window)",
+            )
+        session.reload_lenses()
+        session.select_lens(lens_id)
+        return self._fp_outcome(None)
 
     def _job_fingerprint_skip(self, step: FpSetup, reason: str = "") -> FingerprintOutcome:
         session = self._require_fingerprint()
         return self._fp_outcome(session.skip(step, reason))
 
     def _job_fingerprint_step(
-        self, step: FpSetup, lens: str | None = None, confirmed: tuple[str, ...] = ()
+        self, step: FpSetup, confirmed: tuple[str, ...] = ()
     ) -> FingerprintOutcome:
         session = self._require_fingerprint()
         if step not in session.plan:
             raise InvalidRequestError(f"{step!r} is not a fingerprint step")
-        if lens is not None:
-            session.set_lens(lens)
         with self._streaming_grabs():
             result = session.run(step, confirmed)
         return self._fp_outcome(result)

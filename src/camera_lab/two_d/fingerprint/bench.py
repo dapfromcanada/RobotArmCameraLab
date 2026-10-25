@@ -102,3 +102,35 @@ def load_bench(path: Path | None = None) -> Bench | None:
     if not p.exists():
         return None
     return load_yaml_model(p, Bench)
+
+
+def lens_choices(
+    camera_model: str, bench: Bench | None, catalog_path: Path | None = None
+) -> list[tuple[str, BenchLens, bool]]:
+    """The lenses to pick from for a camera model: (id, lens, tested on this model), those
+    tested on the model first. From the catalog (the source of truth, Derek 2026-10-25); the
+    bench file's own list only while the catalog holds no lenses (a fresh workspace)."""
+    from camera_lab.two_d.catalog import Catalog
+
+    with Catalog(catalog_path) as cat:
+        infos = cat.lenses_for_model(camera_model)
+    out: list[tuple[str, BenchLens, bool]] = []
+    for info in infos:
+        stops = tuple(s.f_number for s in info.stops)
+        if not stops:
+            continue
+        trans = {
+            s.f_number: float(s.transmission)
+            for s in info.stops
+            if s.transmission is not None and s.f_number != min(stops) and 0 < s.transmission <= 1
+        }
+        out.append(
+            (
+                info.id,
+                BenchLens(label=info.name, f_stops=stops, transmission=trans),
+                camera_model in info.tested_on,
+            )
+        )
+    if not out and bench is not None:
+        out = [(lid, lens, False) for lid, lens in bench.lenses.items()]
+    return out

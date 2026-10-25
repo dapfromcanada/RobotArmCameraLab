@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import ClassVar
 
 import numpy as np
 import pytest
@@ -216,7 +217,7 @@ def test_hdr_channels_discovery_says_how_much_light(
             return np.clip(img, 0, 4095)
 
         monkeypatch.setattr(ses, "_plane", plane)
-        ses.set_lens("  Kowa 8 mm,   f/1.4 ")
+        ses.set_iris(1.4)  # discovery: the human picks the stop they set
         first = ses.step_stage(0)
         assert first.status == "fail"
         assert list(first.data["problems"]) == ["HDRChannel0"]
@@ -237,7 +238,7 @@ def test_hdr_channels_discovery_says_how_much_light(
         assert factor == pytest.approx(10 * 86.264 * 8 / (0.8 * (4095 - black)), rel=0.15)
 
         light["level"] = 0.005  # iris closed further
-        ses.set_lens("Kowa 8 mm, f/8")
+        ses.set_iris(8.0)
         third = ses.step_stage(0)
         assert third.status == "pass", third.message
         assert third.data["channels"]["HDRChannel0"]["lens"] == "Kowa 8 mm, f/8"
@@ -366,7 +367,8 @@ def test_hdr_recipe_stages_verify_the_light(
             "Diffuser still on the lens",
         )
         assert "Iris at f/1.4 (fully open)" in ses.plan["cap"].checks
-        ses.set_lens("anything")  # a recipe dictates the lens: ignored
+        with pytest.raises(InvalidRequestError, match="not in the catalog"):
+            ses.select_lens("nope")  # lenses are picked from the catalog, never typed
         assert ses.lens == "Kowa 8 mm, f/1.4"
         assert ses.step_identity().ok
 
@@ -515,9 +517,12 @@ def test_setups_run_each_bench_state_once(svc: TwoDService, tmp_path: Path) -> N
     assert ses.next_step() == "cap"
     with pytest.raises(InvalidRequestError, match="confirm the checklist"):
         ses.run("cap", ["Lens cap on"])
-    with pytest.raises(InvalidRequestError, match="Lens / iris box"):  # never "not stated"
+    assert ses.lens_id is None and "Lens picked in the list" in ses.plan["cap"].checks
+    with pytest.raises(InvalidRequestError, match="pick the lens"):  # never "not stated"
         ses.run("cap", ses.plan["cap"].checks)
-    ses.set_lens("sim lens, f/2")
+    assert {lid for lid, _, _ in ses.lens_choices} == {"jai_6mm_0628", "kowa_8mm"}
+    ses.select_lens("kowa_8mm")  # the bench file's list: the temp workspace catalog is empty
+    assert ses.lens == "Kowa 8 mm, f/1.4" and "Iris at f/1.4 (fully open)" in ses.plan["cap"].checks
 
     stop = ses.run("cap", ses.plan["cap"].checks)  # the chart is in view: no cap
     assert stop.status == "fail" and stop.message.startswith("darks: light reaches the sensor")
@@ -543,12 +548,13 @@ def test_setups_run_each_bench_state_once(svc: TwoDService, tmp_path: Path) -> N
         ses.skip("diffuser", "no")
     assert ses.run("light_2", ses.plan["light_2"].checks).status == "skipped"  # no channels
     cam = svc._open[SIM].camera
+    with pytest.raises(InvalidRequestError, match="fixed once a row has run"):
+        ses.select_lens("jai_6mm_0628")
     cam.iris_transmission = 0.25  # type: ignore[attr-defined]  # the human closes 2 stops
-    ses.set_lens("sim lens, f/4")
+    assert ses.plan["lens"].checks[0] == "Iris at f/2.8"
     lens = ses.run("lens", ses.plan["lens"].checks)
     assert lens.status == "pass", lens.message
     cam.iris_transmission = 1.0  # type: ignore[attr-defined]
-    ses.set_lens("sim lens, f/2")
     fin = ses.run("finish", ses.plan["finish"].checks)
     assert fin.status == "pass", fin.message
     assert ses.next_step() is None
@@ -557,8 +563,10 @@ def test_setups_run_each_bench_state_once(svc: TwoDService, tmp_path: Path) -> N
     assert "| cap | identity" in md and "**all**" in md and "Image pipeline (" in md
     assert "| finish | light_back" in md and "user_sets" in md.split("| finish |")[1]
     assert "Camera temperature:** cap 41.5 °C" in md
-    assert "**lens_iris** (pass): sim lens, f/4: light 0.2" in md
-    assert doc["lens_iris"]["lens"] == "sim lens, f/4"
+    assert "**lens_iris** (pass): Kowa 8 mm, f/2.8: light 0.2" in md
+    assert doc["setups"]["finish"]["status"] == "pass"  # the row that wrote the report
+    assert doc["lens_iris"]["lens"] == "Kowa 8 mm, f/2.8"
+    assert doc["identity"]["lens"] == "Kowa 8 mm, f/1.4"
     assert doc["setups"]["cap"]["status"] == "pass"
     assert doc["dark"]["repeats"]["read_noise_dn"]["median"] > 0
 
@@ -688,7 +696,12 @@ def test_jai_recipe_uses_the_end_stop_and_the_global_shutter_minimum() -> None:
     JAI's global shutter allows the bench's 1 ms minimum, which makes f/2.8 usable."""
     from camera_lab.two_d.profiles import load_profile
 
+    class _Cam:
+        info = type("Info", (), {"model": "AP-3200T-PGE"})()
+
     class _Svc:
+        _open: ClassVar[dict[str, object]] = {"U330439": type("Open", (), {"camera": _Cam()})()}
+
         def resolve(self, c: str) -> str:
             return c
 

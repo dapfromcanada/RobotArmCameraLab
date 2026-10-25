@@ -15,12 +15,12 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QGuiApplication, QImage
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QFrame,
     QHBoxLayout,
     QInputDialog,
     QLabel,
-    QLineEdit,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from camera_lab.two_d.fingerprint.session import FP_SETUPS, FpResult, FpSetup, StepPlan
+from camera_lab.two_d.gui.widgets.add_lens_dialog import AddLensDialog
 from camera_lab.two_d.gui.widgets.layout_utils import remove_all_widgets
 from camera_lab.two_d.gui.widgets.live_view_widget import LiveViewWidget
 from camera_lab.two_d.gui.workers import CameraWorker, FingerprintOutcome
@@ -85,16 +86,29 @@ COPY_TEXT = "Copy messages"
 COPIED_TEXT = "Messages copied to the clipboard (paste them into an email or a chat)."
 #: Messages and results can be selected with the mouse and copied (Derek 2026-10-22).
 SELECTABLE = Qt.TextInteractionFlag.TextSelectableByMouse
-LENS_LABEL = "Lens / iris:"
-LENS_PLACEHOLDER = (
-    "required: e.g. Kowa 8 mm, f/1.4 (fully open), dimmer 6 - recorded with each step"
-)
+LENS_LABEL = "Lens:"
+IRIS_LABEL = "Iris set to:"
+ADD_LENS_TEXT = "Add a lens..."
+PICK_LENS_TEXT = "pick the lens on the camera"
+PICK_IRIS_TEXT = "pick the stop"
+TESTED_MARK = "  (tested on this camera model)"
 DONE_INSTRUCTION = "All steps passed. The fingerprint is saved."
 NO_VALUE_TEXT = "-"
 RISES_TEXT = "SNR rises at"
 TABLE_HEADER = ("gain dB", "exposure us", "signal DN", "sigma DN", "SNR")
 
-FINGERPRINT_JOBS = frozenset({"fingerprint_create", "fingerprint_step", "fingerprint_skip"})
+FINGERPRINT_JOBS = frozenset(
+    {
+        "fingerprint_create",
+        "fingerprint_step",
+        "fingerprint_skip",
+        "fingerprint_select_lens",
+        "fingerprint_set_iris",
+        "catalog_add_lens",
+    }
+)
+#: Jobs that pick or add (no row runs): a refusal is a message, not a STOP of a row.
+PICK_JOBS = frozenset({"fingerprint_select_lens", "fingerprint_set_iris", "catalog_add_lens"})
 SKIP_TEXT = "Skip"
 SKIP_PROMPT = "Why skip this setup? (recorded in the report)"
 
@@ -125,7 +139,15 @@ class FingerprintWindow(QDialog):
         self.panel_widget = QWidget()
         self.instruction_label = QLabel("")
         self.lens_label = QLabel(LENS_LABEL)
-        self.lens_edit = QLineEdit()
+        self.lens_combo = QComboBox()
+        self.add_lens_button = QPushButton(ADD_LENS_TEXT)
+        self.lens_text_label = QLabel("")  # the lens / iris camera_lab records for the row
+        self.iris_label = QLabel(IRIS_LABEL)
+        self.iris_combo = QComboBox()
+        self._lens_ids: list[str | None] = []
+        self._iris_stops: list[float | None] = []
+        self._lens_id: str | None = None
+        self._iris_f: float | None = None
         self.steps_title_label = QLabel("Fingerprint steps")
         self.steps_container = QWidget()
         self.message_label = QLabel(START_TEXT)
@@ -162,6 +184,7 @@ class FingerprintWindow(QDialog):
         self.steps_layout = QVBoxLayout(self.steps_container)
         self.button_layout = QHBoxLayout()
         self.lens_layout = QHBoxLayout()
+        self.iris_layout = QHBoxLayout()
         self.results_layout = QVBoxLayout(self.results_container)
         self.checks_layout = QVBoxLayout(self.checks_container)
         self.checks_layout.setContentsMargins(0, 0, 0, 0)
@@ -184,9 +207,14 @@ class FingerprintWindow(QDialog):
         self.button_layout.addWidget(self.copy_button)
 
         self.lens_layout.addWidget(self.lens_label)
-        self.lens_layout.addWidget(self.lens_edit, 1)
+        self.lens_layout.addWidget(self.lens_combo, 1)
+        self.lens_layout.addWidget(self.add_lens_button)
+        self.iris_layout.addWidget(self.iris_label)
+        self.iris_layout.addWidget(self.iris_combo, 1)
         self.panel_layout.addWidget(self.instruction_label)
         self.panel_layout.addLayout(self.lens_layout)
+        self.panel_layout.addLayout(self.iris_layout)
+        self.panel_layout.addWidget(self.lens_text_label)
         self.panel_layout.addWidget(self.checks_title_label)
         self.panel_layout.addWidget(self.checks_container)
         self.panel_layout.addWidget(self.steps_title_label)
@@ -207,7 +235,9 @@ class FingerprintWindow(QDialog):
         self.retry_button.clicked.connect(self._on_retry_button_clicked)
         self.copy_button.clicked.connect(self._on_copy_button_clicked)
         self.skip_button.clicked.connect(self._on_skip_button_clicked)
-        self.lens_edit.textChanged.connect(self._on_lens_edit_text_changed)
+        self.lens_combo.activated.connect(self._on_lens_combo_activated)
+        self.iris_combo.activated.connect(self._on_iris_combo_activated)
+        self.add_lens_button.clicked.connect(self._on_add_lens_button_clicked)
 
     # --- Styling ---
     def _apply_styles(self) -> None:
@@ -218,6 +248,7 @@ class FingerprintWindow(QDialog):
         self.results_title_label.setObjectName("secondaryLabel")
         self.message_label.setObjectName("setupMessage")
         self.folder_label.setObjectName("secondaryLabel")
+        self.lens_text_label.setObjectName("secondaryLabel")
         self._set_property(self.message_label, "level", LEVEL_INFO)
 
     # --- Initial State ---
@@ -229,7 +260,10 @@ class FingerprintWindow(QDialog):
         self.folder_label.setWordWrap(True)
         self.results_scroll.setWidgetResizable(True)
         self.results_scroll.setMinimumHeight(RESULTS_MIN_HEIGHT)
-        self.lens_edit.setPlaceholderText(LENS_PLACEHOLDER)
+        self.lens_combo.setEnabled(False)
+        self.add_lens_button.setEnabled(False)
+        self.iris_label.setVisible(False)
+        self.iris_combo.setVisible(False)
         self.run_step_button.setFixedHeight(BUTTON_HEIGHT)
         self.retry_button.setFixedHeight(BUTTON_HEIGHT)
         self.copy_button.setFixedHeight(BUTTON_HEIGHT)
@@ -440,9 +474,18 @@ class FingerprintWindow(QDialog):
     def _refresh_ui_state(self) -> None:
         idle = self._session_ready and not self._busy
         self._refresh_instruction()
-        # the lens and iris go into every row's record (Derek 2026-10-24: an empty box left
-        # the JAI report saying "not stated")
-        ticked = self._checks_done() and bool(self.lens_edit.text().strip())
+        # the lens goes into every row's record, picked, never typed (Derek 2026-10-25)
+        due = self._failed_step or self._next_step
+        plan = self._plan.get(due) if due is not None else None
+        iris_needed = plan is not None and plan.iris_pick
+        self.iris_label.setVisible(iris_needed)
+        self.iris_combo.setVisible(iris_needed)
+        self.iris_combo.setEnabled(idle and iris_needed)
+        ticked = (
+            self._checks_done()
+            and self._lens_id is not None
+            and (not iris_needed or self._iris_f is not None)
+        )
         can_run = idle and self._next_step is not None and self._failed_step is None
         self.run_step_button.setEnabled(can_run and ticked)
         self.retry_button.setEnabled(idle and self._failed_step is not None and ticked)
@@ -460,23 +503,53 @@ class FingerprintWindow(QDialog):
         self._show_message(RUNNING_TEXT.format(step=self._label(step)), LEVEL_INFO)
         self._checks_step = None  # a new, unticked checklist after the step (strict)
         self._refresh_ui_state()
-        self._submit("fingerprint_step", step=step, lens=self.lens_edit.text(), confirmed=confirmed)
+        self._submit("fingerprint_step", step=step, confirmed=confirmed)
 
     def _apply_outcome(self, outcome: FingerprintOutcome) -> None:
         """Plan, lens and the due step from the worker."""
         if outcome.plan is not None and outcome.plan != self._plan:
             self._plan = dict(outcome.plan)
+            self._checks_step = None  # the checklist names the picked lens's stops: rebuild
             states = dict(self._row_states)
             messages = dict(self._row_messages)
             self._populate_step_list()
             for step, state in states.items():
                 if state != STATE_PENDING:
                     self._set_row(step, state, messages.get(step, ""))
-        self.lens_edit.setReadOnly(outcome.has_recipe)
-        self.lens_edit.setEnabled(not outcome.has_recipe)
-        if outcome.has_recipe or not self.lens_edit.text():
-            self.lens_edit.setText(outcome.lens)
+        self._populate_lens_list(outcome)
         self._next_step = outcome.next_step
+
+    def _populate_lens_list(self, outcome: FingerprintOutcome) -> None:
+        """The lens pick list (tested on this model first) and the iris stops; no free text."""
+        self._lens_id, self._iris_f = outcome.lens_id, outcome.iris_f
+        self.lens_combo.blockSignals(True)
+        self.lens_combo.clear()
+        self._lens_ids = []
+        if outcome.lens_id is None:
+            self.lens_combo.addItem(PICK_LENS_TEXT)
+            self._lens_ids.append(None)
+        for lens_id, label, tested in outcome.lenses:
+            self.lens_combo.addItem(label + (TESTED_MARK if tested else ""))
+            self._lens_ids.append(lens_id)
+        self.lens_combo.setCurrentIndex(self._lens_ids.index(outcome.lens_id))
+        self.lens_combo.blockSignals(False)
+        self.lens_combo.setEnabled(not outcome.lens_locked)
+        self.add_lens_button.setEnabled(not outcome.lens_locked)
+        self.iris_combo.blockSignals(True)
+        self.iris_combo.clear()
+        self._iris_stops = [None, *outcome.iris_stops]
+        self.iris_combo.addItem(PICK_IRIS_TEXT)
+        for f in outcome.iris_stops:
+            self.iris_combo.addItem(f"f/{f:g}")
+        self.iris_combo.setCurrentIndex(self._iris_stops.index(outcome.iris_f))
+        self.iris_combo.blockSignals(False)
+        self.lens_text_label.setText(
+            f"Recorded with the row: {outcome.lens}" if outcome.lens else ""
+        )
+
+    def lens_items(self) -> list[str]:
+        """The lens pick list's texts (tests)."""
+        return [self.lens_combo.itemText(i) for i in range(self.lens_combo.count())]
 
     def _show_step_result(self, outcome: FingerprintOutcome) -> None:
         result = outcome.result
@@ -627,6 +700,8 @@ class FingerprintWindow(QDialog):
                 self._session_ready = True
                 self._apply_outcome(payload)
                 self._show_message(READY_TEXT, LEVEL_INFO)
+            elif name in PICK_JOBS:
+                self._apply_outcome(payload)
             else:
                 self._show_step_result(payload)
         self._refresh_ui_state()
@@ -635,6 +710,10 @@ class FingerprintWindow(QDialog):
         if self._closed or name not in FINGERPRINT_JOBS:
             return
         self._busy = False
+        if name in PICK_JOBS:
+            self._show_message(message, LEVEL_STOP)
+            self._refresh_ui_state()
+            return
         if name != "fingerprint_create":
             step = self._running_step() or self._next_step
             self._failed_step = step
@@ -650,8 +729,28 @@ class FingerprintWindow(QDialog):
                 return step
         return None
 
-    def _on_lens_edit_text_changed(self, _text: str) -> None:
+    def _on_lens_combo_activated(self, index: int) -> None:
+        lens_id = self._lens_ids[index] if 0 <= index < len(self._lens_ids) else None
+        if lens_id is not None and lens_id != self._lens_id:
+            self._busy = True
+            self._refresh_ui_state()
+            self._submit("fingerprint_select_lens", lens_id=lens_id)
+
+    def _on_iris_combo_activated(self, index: int) -> None:
+        f = self._iris_stops[index] if 0 <= index < len(self._iris_stops) else None
+        if f is not None and f != self._iris_f:
+            self._busy = True
+            self._refresh_ui_state()
+            self._submit("fingerprint_set_iris", f_number=f)
+
+    def _on_add_lens_button_clicked(self) -> None:
+        dlg = AddLensDialog(self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        name, focal, mount, stops = dlg.values()
+        self._busy = True
         self._refresh_ui_state()
+        self._submit("catalog_add_lens", name=name, focal_mm=focal, mount=mount, stops=stops)
 
     def _on_run_step_button_clicked(self) -> None:
         if self._next_step is not None:

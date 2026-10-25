@@ -98,12 +98,14 @@ def test_modules_follow_the_sensor_type(ses: FingerprintSession) -> None:
     assert "colour" not in ses.plan["diffuser"].instruction
     assert ses.plan["lens"].label == "3. Lens / iris" and ses.plan["lens"].can_skip
     assert ses.plan["finish"].label == "4. Iris back: finish"
-    assert ses.plan["finish"].checks == (
-        "Iris and light back as in the diffuser row",
-        "Lens / iris box says it",
+    assert ses.plan["finish"].checks == (  # no lens picked yet: the end stop by name
+        "Iris fully open",
+        "Bench light on dimmer 10",
         "Diffuser still on the lens",
         "OK to write test values to UserSet2 and restart the camera",
     )
+    ses.select_lens("kowa_8mm")
+    assert ses.plan["finish"].checks[0] == "Iris at f/1.4 (fully open)"
 
     _replan(ses, "prism", hdr=False)  # e.g. the JAI: core + colour
     assert _rows(ses) == ["cap", "diffuser", "lens", "finish"]
@@ -128,7 +130,7 @@ def test_bayer_camera_measures_its_colour_planes(
     ses = FingerprintSession(svc, SIM, root=tmp_path / "fp", reset=False)
     cam = svc._open[SIM].camera
     cam.scene = "cap"  # type: ignore[attr-defined]
-    ses.set_lens("sim lens, f/2")
+    ses.select_lens("kowa_8mm")
     cap = ses.run("cap", ses.plan["cap"].checks)
     assert cap.ok, cap.message
     assert ses.fmt == "BayerRG8" and "only 8-bit raw" in cap.message
@@ -141,7 +143,6 @@ def test_bayer_camera_measures_its_colour_planes(
     assert len(colour["repeats"]["relative_to_green.R"]["values"]) == 3
     assert "colour planes: R/G" in dif.message
     cam.iris_transmission = 0.25  # type: ignore[attr-defined]
-    ses.set_lens("sim lens, f/4")
     lens = ses.run("lens", ses.plan["lens"].checks)
     assert lens.ok, lens.message
     shading = lens.data["lens_iris"]

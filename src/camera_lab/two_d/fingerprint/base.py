@@ -12,7 +12,7 @@ import numpy.typing as npt
 
 from camera_lab.two_d.errors import InvalidRequestError
 from camera_lab.two_d.fingerprint import measure as fm
-from camera_lab.two_d.fingerprint.bench import Bench
+from camera_lab.two_d.fingerprint.bench import Bench, BenchLens
 from camera_lab.two_d.models import PIXEL_FORMAT_BITS, CameraSettingsPatch
 
 if TYPE_CHECKING:
@@ -58,6 +58,12 @@ class SessionBase:
     channel_fmt: str
     lens: str  # lens / iris (from the recipe, or as the human states it)
     lens_label: str
+    lens_id: str | None  # the picked lens (catalog id)
+    lens_spec: BenchLens | None  # its marked stops and measured light per stop
+    lens_choices: list[tuple[str, BenchLens, bool]]  # (id, lens, tested on this model)
+    iris_f: float | None  # discovery rows: the stop the human picked
+    camera_model: str
+    catalog_path: Path | None
     recipe: FingerprintRecipe | None
     bench: Bench | None
     created: datetime
@@ -215,10 +221,11 @@ class SessionBase:
         return ratio, f"{how}: check the dimmer and the iris, then Retry"
 
     def _lens_row_f(self) -> float:
-        """The lens row's f-number with a recipe: LENS_STOPS_CLOSED stops from the reference."""
-        ref = self.recipe.reference.f_number if self.recipe is not None else 1.0
+        """The lens row's f-number: LENS_STOPS_CLOSED stops from the reference, on a mark."""
+        ref = self._reference().f_number
         target = ref * 2 ** (LENS_STOPS_CLOSED / 2)
-        return min(F_STOPS, key=lambda f: abs(math.log(f / target)))
+        marks = self.lens_spec.f_stops if self.lens_spec is not None else F_STOPS
+        return min(marks, key=lambda f: abs(math.log(f / target)))
 
     def _lens_at(self, light: FpLight) -> str:
         return f"{self.lens_label}, f/{light.f_number:g}"
@@ -226,14 +233,24 @@ class SessionBase:
     def _iris_text(self, f_number: float) -> str:
         return f"Iris at f/{f_number:g}" + (" (fully open)" if f_number == self._open_f else "")
 
+    def _reference(self) -> FpLight:
+        """The reference light: the recipe's, else the bench light at its brightest setting with
+        the iris fully open (an end stop: the human can always find it again)."""
+        from camera_lab.two_d.profiles import FpLight
+
+        if self.recipe is not None:
+            return self.recipe.reference
+        brightest = max(self.bench.light.relative) if self.bench is not None else 10
+        return FpLight(dimmer=brightest, f_number=self._open_f or 1.0)
+
     def _expected(self, light: FpLight) -> float:
-        """Light at ``light`` relative to the recipe's reference."""
-        r = self.recipe
-        if r is None or self.bench is None:  # pragma: no cover - recipe mode only
+        """Light at ``light`` relative to the reference."""
+        if self.bench is None:  # pragma: no cover - recipe mode needs the bench file
             return 1.0
-        ref = r.reference
-        lens = self.bench.lenses[r.lens]
-        return self.bench.light_ratio(light.dimmer, light.f_number, ref.dimmer, ref.f_number, lens)
+        ref = self._reference()
+        return self.bench.light_ratio(
+            light.dimmer, light.f_number, ref.dimmer, ref.f_number, self.lens_spec
+        )
 
     def _planned(self) -> list[FpStep]:
         """Measurements of the active setups, in order."""

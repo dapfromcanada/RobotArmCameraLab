@@ -27,8 +27,6 @@ class LensMeasurements(SessionBase):
     def step_lens_iris(self) -> FpResult:
         """Diffuser on, iris closed LENS_STOPS_CLOSED stops from the diffuser row."""
         self._require("flat")
-        if self.recipe is not None:  # the recipe dictates the lens: the iris two stops down
-            self.lens = f"{self.lens_label}, f/{self._lens_row_f():g}"
         expected = 0.5**LENS_STOPS_CLOSED
         ratio, why = self._check_light(
             expected, LIGHT_TOLERANCE, f"{LENS_STOPS_CLOSED} f-stops less than the diffuser row"

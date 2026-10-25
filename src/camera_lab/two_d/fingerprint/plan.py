@@ -36,19 +36,17 @@ class PlanMixin(SessionBase):
         """The human's setups (what is on the lens, the iris, the light), each with the
         measurements one Run makes there. Inactive setups are not shown."""
         r = self.recipe
-        lens_check: tuple[str, ...] = ()
-        if r is not None:
-            ref = r.reference
-            ref_light: tuple[str, ...] = (
-                self._iris_text(ref.f_number),
-                f"Bench light on dimmer {ref.dimmer}",
-            )
-            lens_check = (f"Lens: {self.lens_label} on the camera",)
-        else:
-            ref_light = (
-                "Iris fully open, or as a STOP of this row asked (written in the Lens / iris box)",
-                "Bench light on, written in the Lens / iris box",
-            )
+        # every row the human returns to runs at the reference: the recipe's, else the bench
+        # light at its brightest and the iris fully open (an end stop, Derek 2026-10-24)
+        ref = self._reference()
+        picked = self.lens_spec is not None
+        lens_check: tuple[str, ...] = (
+            (f"Lens: {self.lens_label} on the camera",) if picked else ("Lens picked in the list",)
+        )
+        ref_light: tuple[str, ...] = (
+            self._iris_text(ref.f_number) if picked else "Iris fully open",
+            f"Bench light on dimmer {ref.dimmer}",
+        )
         at_ref: list[FpStep] = []
         others: list[tuple[FpStep, FpChannelStage]] = []
         if r is not None:
@@ -81,10 +79,11 @@ class PlanMixin(SessionBase):
                     "Focus: not needed",
                 ),
                 ("identity", "dark"),
+                f_number=ref.f_number if picked else None,
             ),
             "diffuser": StepPlan(
                 "diffuser",
-                "Diffuser on" + (f", iris f/{r.reference.f_number:g}" if r is not None else ""),
+                "Diffuser on" + (f", iris f/{ref.f_number:g}" if picked else ""),
                 "Take the cap off and put the OPAL DIFFUSER on the lens: the live image evenly "
                 "white with no edges. Keep it still. One Run: timing, the flat field"
                 + (", the colour planes" if colour else "")
@@ -98,6 +97,7 @@ class PlanMixin(SessionBase):
                     *ref_light,
                 ),
                 ("timing", "flat", *colour, *at_ref, "noise_gain"),
+                f_number=ref.f_number if picked else None,
             ),
         }
         self._light_changes = True  # the lens row closes the iris (others / HDR discovery too)
@@ -120,38 +120,37 @@ class PlanMixin(SessionBase):
                     ),
                     (step,),
                     can_skip=True,
+                    f_number=st.f_number,
                 )
             elif r is None and n == 0 and self.hdr_capable:
                 plan[setup] = StepPlan(
                     setup,
                     "HDR channels (discovery)",
                     "No light recipe for this camera model yet. Each channel reports how much "
-                    "less or more light it needs (a factor and f-stops): change the light as "
-                    "asked, write it in the Lens / iris box, then Retry. Measured channels are "
-                    "kept; the factors become this model's recipe.",
-                    ("Diffuser still on the lens", "Lens / iris box matches the light now"),
+                    "less or more light it needs (a factor and f-stops): set the iris to the "
+                    "marked stop it names, pick that stop in the list, then Retry. Measured "
+                    "channels are kept; the factors become this model's recipe.",
+                    (
+                        "Diffuser still on the lens",
+                        "The stop picked in the list is set on the iris",
+                    ),
                     ("channels_a",),
                     can_skip=True,
+                    iris_pick=True,
                 )
             else:
                 plan[setup] = StepPlan(setup, "Not used", "Not used for this camera.", active=False)
         stops = LENS_STOPS_CLOSED
-        if r is not None:
-            f_lens = self._lens_row_f()
-            lens_how = (
-                f"Set the iris to f/{f_lens:g} ({stops} f-stops smaller than the diffuser row)."
-            )
-            lens_checks: tuple[str, ...] = (self._iris_text(f_lens), "Diffuser still on the lens")
-        else:
-            lens_how = (
-                f"Close the iris {stops} f-stops from the diffuser row (e.g. f/4 → f/8) and write "
-                "the new iris in the Lens / iris box."
-            )
-            lens_checks = (
-                f"Iris closed {stops} f-stops from the diffuser row",
-                "Lens / iris box says the new iris",
-                "Diffuser still on the lens",
-            )
+        f_lens = self._lens_row_f() if picked else None
+        lens_how = (
+            f"Set the iris to f/{f_lens:g} ({stops} f-stops smaller than the diffuser row)."
+            if f_lens is not None
+            else f"Close the iris {stops} f-stops from the diffuser row."
+        )
+        lens_checks: tuple[str, ...] = (
+            self._iris_text(f_lens) if f_lens is not None else f"Iris closed {stops} f-stops",
+            "Diffuser still on the lens",
+        )
         plan["lens"] = StepPlan(
             "lens",
             "Lens / iris",
@@ -162,6 +161,7 @@ class PlanMixin(SessionBase):
             lens_checks,
             ("lens_iris",),
             can_skip=True,
+            f_number=f_lens,
         )
         info = self.service.user_set_info(self.camera_id)
         slots = info.get("slots", [])
@@ -173,11 +173,7 @@ class PlanMixin(SessionBase):
             if persist == PERSIST_SLOT
             else f"; {BOOT_SLOT} is then refilled with factory Default"
         )
-        back = (
-            ref_light
-            if r is not None
-            else ("Iris and light back as in the diffuser row", "Lens / iris box says it")
-        )
+        back = ref_light
         plan["finish"] = StepPlan(
             "finish",
             "Iris back: finish",
@@ -187,6 +183,7 @@ class PlanMixin(SessionBase):
             "Remove the diffuser afterwards.",
             (*back, "Diffuser still on the lens", persist_check),
             ("light_back", "user_sets", "report"),
+            f_number=ref.f_number if picked else None,
         )
         n = 0
         for setup in FP_SETUPS:

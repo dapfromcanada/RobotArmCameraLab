@@ -24,6 +24,7 @@ def tmp_roots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]
     data.mkdir(parents=True)
     monkeypatch.setenv("CAMERA_LAB_WS_ROOT", str(ws))
     monkeypatch.setenv("CAMERA_LAB_DATA_ROOT", str(data))
+    monkeypatch.delenv("CAMERA_LAB_CATALOG", raising=False)  # the catalog: WS/config (temp)
     runtime = tmp_path / "xdg-runtime"
     runtime.mkdir(mode=0o700)
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))  # lock files stay in the test dir

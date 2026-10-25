@@ -16,6 +16,17 @@ characteristics:
 
 default_mode: raw
 
+# How the human sets the bench for this camera's fingerprint (lens from
+# config/fingerprint_bench.yaml; camera_lab fills in the lens / iris, the human enters nothing).
+fingerprint:
+  lens: jai_6mm_0628
+  # floods full, iris fully open: an end stop the human can always find again (Derek
+  # 2026-10-24: a middle mark on this short-throw ring cannot be repeated). Global shutter:
+  # the bench's 1 ms minimum (not 2 ms) leaves room for the sweep at f/2.8.
+  reference: {dimmer: 10, f_number: 2.8}
+  notes:
+    - "Floods at full throughout; iris fully open (f/2.8) for every row, f/5.6 for the lens row."
+
 modes:
   raw:
     strategy: linear

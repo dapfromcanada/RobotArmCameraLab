@@ -829,8 +829,17 @@ class EbusCamera(Camera2D):
             and value > exp[1]
             and self._writable("AcquisitionFrameRate")
         ):
-            target = min(fps[1], max(fps[0], 1e6 / (value + FRAME_OVERHEAD_US)))
-            self._set("AcquisitionFrameRate", target)
+            # the readout margin the camera keeps depends on the format (live: RGB8 737 µs,
+            # RGB12V1Packed 1107 µs, 2026-10-24: a fixed 1000 µs left 12-bit exposures
+            # longer than one frame rejected): lower until the exposure fits
+            margin = FRAME_OVERHEAD_US
+            for _ in range(4):
+                target = min(fps[1], max(fps[0], 1e6 / (value + margin)))
+                self._set("AcquisitionFrameRate", target)
+                now = self._range("ExposureTime")
+                if now is None or value <= now[1] or target <= fps[0]:
+                    break
+                margin += value - now[1] + 10.0
             self._auto_fps = True
             warnings.append(
                 f"frame rate lowered to {float(self._get('AcquisitionFrameRate')):.3f} Hz "

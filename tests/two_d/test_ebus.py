@@ -294,6 +294,16 @@ def test_long_exposure_lowers_frame_rate(cam: EbusCamera, sdk: FakeSdk) -> None:
     assert any("restored" in w for w in back.warnings)
 
 
+def test_long_12bit_exposure_gets_a_frame_long_enough(cam: EbusCamera) -> None:
+    """Live JAI 2026-10-24: in RGB12V1Packed the camera keeps 1107 µs of readout margin;
+    exposures longer than one frame were rejected while the frame rate was lowered."""
+    cam.apply(CameraSettingsPatch(pixel_format="RGB12V1Packed"))
+    for exp in (124_000, 150_000, 226_000):
+        res = cam.apply(CameraSettingsPatch(exposure_us=exp))
+        assert res.ok and res.settings.exposure_us == exp, res
+        assert res.settings.frame_rate_hz <= 1e6 / (exp + 1107)
+
+
 def test_explicit_frame_rate_wins(cam: EbusCamera) -> None:
     assert cam.apply(CameraSettingsPatch(frame_rate_hz=2.0, exposure_us=300_000)).ok
     res = cam.apply(CameraSettingsPatch(exposure_us=10_000))

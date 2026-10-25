@@ -337,7 +337,10 @@ class FakeCamera:
             "Height": v["HeightMax"] - v["OffsetY"],
             "OffsetX": v["WidthMax"] - v["Width"],
             "OffsetY": v["HeightMax"] - v["Height"],
-            "ExposureTime": 1e6 / v["AcquisitionFrameRate"] - 737.0,
+            # live: the readout margin depends on the format (RGB8 737 µs, RGB12V1Packed
+            # 1107 µs, 2026-10-24)
+            "ExposureTime": 1e6 / v["AcquisitionFrameRate"]
+            - (1107.0 if v.get("PixelFormat") == "RGB12V1Packed" else 737.0),
             "AcquisitionFrameRate": self.fps_max(),
             "Gamma": 1.0,
         }.get(name)

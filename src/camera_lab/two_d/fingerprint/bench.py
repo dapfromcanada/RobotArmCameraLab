@@ -68,6 +68,9 @@ class Bench(_Frozen):
     light: BenchLight
     #: Shortest exposure for lit measurements (the bench light's ripple averages out above it).
     min_exposure_us: float = Field(default=2000.0, ge=0, le=1_000_000)
+    #: The same for global-shutter cameras: ripple there is not row bands, only a little
+    #: frame-to-frame variation, so shorter exposures are clean (None: use min_exposure_us).
+    min_exposure_global_us: float | None = Field(default=None, ge=0, le=1_000_000)
     lenses: dict[str, BenchLens] = Field(max_length=50)
     notes: tuple[str, ...] = ()
 

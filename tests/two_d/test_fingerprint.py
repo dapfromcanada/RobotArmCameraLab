@@ -555,6 +555,7 @@ def test_setups_run_each_bench_state_once(svc: TwoDService, tmp_path: Path) -> N
     doc = yaml.safe_load((Path(fin.data["report"]["folder"]) / "fingerprint.yaml").read_text())
     md = (Path(fin.data["report"]["folder"]) / "report.md").read_text()
     assert "| cap | identity" in md and "**all**" in md and "Image pipeline (" in md
+    assert "| finish | light_back" in md and "user_sets" in md.split("| finish |")[1]
     assert "Camera temperature:** cap 41.5 °C" in md
     assert "**lens_iris** (pass): sim lens, f/4: light 0.2" in md
     assert doc["lens_iris"]["lens"] == "sim lens, f/4"
@@ -610,8 +611,9 @@ def test_flicker_stops_a_channel_sweep(tmp_roots: Path, monkeypatch: pytest.Monk
 
 def test_lit_measurements_respect_the_bench_minimum(svc: TwoDService, tmp_path: Path) -> None:
     ses = FingerprintSession(svc, SIM, root=tmp_path / "fp", reset=False)
-    assert ses.min_exposure_us == 2000.0
-    assert ses._lit_range()[0] >= 2000.0
+    assert svc.get_profile(SIM).characteristics.shutter == "global"  # the bench's global min
+    assert ses.min_exposure_us == 1000.0  # (rolling shutter: 2000, see the TRI054S tests)
+    assert ses._lit_range()[0] >= 1000.0
 
 
 def test_user_sets_without_a_boot_set_feature(svc: TwoDService, tmp_path: Path) -> None:
@@ -679,3 +681,25 @@ def test_other_gain_mode_is_measured_on_prism_cameras(
     assert out["individual"]["clips_at_dn"] == pytest.approx(3100.0)
     assert out["individual"]["full_well_e"] == round(3000 / 0.45)
     assert state["mode"] == "master"  # put back
+
+
+def test_jai_recipe_uses_the_end_stop_and_the_global_shutter_minimum() -> None:
+    """Derek 2026-10-24: every row the human returns to is an end stop (fully open); the
+    JAI's global shutter allows the bench's 1 ms minimum, which makes f/2.8 usable."""
+    from camera_lab.two_d.profiles import load_profile
+
+    class _Svc:
+        def resolve(self, c: str) -> str:
+            return c
+
+        def get_profile(self, c: str) -> object:
+            return load_profile("U330439")
+
+        def user_set_info(self, c: str) -> dict[str, object]:
+            return {"slots": ["Default", "UserSet1"], "boot_set_feature": False}
+
+    ses = FingerprintSession(_Svc(), "U330439")  # type: ignore[arg-type]
+    assert ses.lens == "JAI 6 mm 0628-C3, f/2.8" and ses.min_exposure_us == 1000.0
+    assert "Iris at f/2.8 (fully open)" in ses.plan["diffuser"].checks
+    assert "Iris at f/2.8 (fully open)" in ses.plan["finish"].checks
+    assert ses.plan["lens"].checks[0] == "Iris at f/5.6"

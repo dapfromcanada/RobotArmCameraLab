@@ -213,6 +213,9 @@ class FingerprintSession(
         self.min_exposure_us = (
             self.bench.min_exposure_us if self.bench is not None else DEFAULT_MIN_EXPOSURE_US
         )
+        glob = self.bench.min_exposure_global_us if self.bench is not None else None
+        if prof.characteristics.shutter == "global" and glob is not None:
+            self.min_exposure_us = glob
         self._row_noise_dn2 = {}
         self.lens_label = ""
         self._open_f = 0.0
@@ -314,8 +317,8 @@ class FingerprintSession(
         if temp is not None:
             self.temperatures[setup] = temp
         parts: list[FpResult] = []
-        durations: dict[str, float] = {}
-        for m in plan.measures:
+        durations = self.durations.setdefault(setup, {})  # filled as it goes: the report
+        for m in plan.measures:  # (last in the finish row) sees the row's earlier times
             prev = self.results.get(m)
             if prev is not None and prev.ok:  # kept from an earlier try: keep its time too
                 res = prev
@@ -326,7 +329,6 @@ class FingerprintSession(
             parts.append(res)
             if not res.ok:
                 break
-        self.durations.setdefault(setup, {}).update(durations)
         data: dict[str, Any] = {p.step: p.data for p in parts}
         data["durations_s"] = dict(self.durations[setup])
         if temp is not None:

@@ -1,4 +1,4 @@
-# JAI Apex AP-3200T-PGE — camera white paper (DRAFT v3, 2026-10-25: fingerprints 20261024T131257Z, 20261024T161546Z and 20261025T101320Z, 3 runs per measurement each, plus live checks)
+# JAI Apex AP-3200T-PGE — camera white paper (generated 2026-10-25 13:22 UTC from the camera catalog; runs: U330439/20261024T131257Z, U330439/20261024T161546Z, U330439/20261024T170000Z-live, U330439/20261025T101320Z)
 
 What this camera is, how it works, how it behaves and how well it performs, measured on the
 camera_lab bench. Machine-readable twin: `AP-3200T-PGE.yaml`.
@@ -256,3 +256,56 @@ corners (above). Prism alignment is assumed good (factory).
 - Camera profile: `config/camera_profiles/U330439.yaml`
 - Fingerprints: `WS/config/camera_fingerprints/U330439/`
 - JAI AP-1600T/3200T-PGE user manual v2.2: `Manuals/vision/jai_apex/`
+
+## 13. Measured data (generated from the catalog)
+Every number below is from the catalog (`camera-lab two-d catalog runs`).
+
+| run | kind | lens | iris | °C | used |
+|---|---|---|---|---|---|
+| U330439/20261024T131257Z | fingerprint | jai_6mm_0628 | - | - | yes |
+| U330439/20261024T161546Z | fingerprint | jai_6mm_0628 | - | 57.4–64.4 | yes |
+| U330439/20261024T170000Z-live | live_check | jai_6mm_0628 | f/2.8 | - | yes |
+| U330439/20261025T101320Z | fingerprint | jai_6mm_0628 | f/2.8 | 59.8–61.2 | yes |
+
+### Headline numbers per fingerprint
+
+| run | black DN | read noise DN | row noise DN | dark current DN/s | DN/e- | full well e- | linearity % | PRNU % |
+|---|---|---|---|---|---|---|---|---|
+| 20261024T131257Z | 100.1 | 1.741 | 0.293 | 0 | 0.8932 | 4470 | 0.114 | 0.692 |
+| 20261024T161546Z | 95.91 | 1.684 | 0.3173 | 40.5 | 0.8966 | 4458 | 0.1914 | 0.5939 |
+| 20261025T101320Z | 100 | 1.728 | 0.3085 | 0 | 0.8935 | 4470 | 0.2086 | 0.6809 |
+
+### Darks per exposure (U330439/20261025T101320Z)
+
+| exposure ms | black DN | read noise DN | hot pixels |
+|---|---|---|---|
+| 1 | 100 | 1.728 | - |
+| 10 | 100.8 | 1.837 | - |
+| 100 | 97.37 | 2.709 | - |
+
+### Noise vs gain (U330439/20261025T101320Z)
+
+| gain mode | gain dB | SNR | DN/e- | read noise e- | full well e- |
+|---|---|---|---|---|---|
+| master | 0 | 33.3 | 0.8854 | 2.07 | 4512 |
+| master | 3 | 28.2 | 1.245 | - | 3210 |
+| master | 6 | 23.7 | 1.742 | 1.9 | 2293 |
+| master | 9 | 20.1 | 2.471 | - | 1617 |
+| master | 12 | 16.9 | 3.449 | 1.77 | 1158 |
+| master | 15 | 14.2 | 4.928 | - | 811 |
+
+### What a user set keeps (U330439/20261025T101320Z)
+
+| setting | after a restart | how |
+|---|---|---|
+| exposure_us | kept | software reboot, UserSet1 |
+| gain_db | kept | software reboot, UserSet1 |
+| pixel_format | kept | software reboot, UserSet1 |
+| white_balance.red | kept | software reboot, UserSet1 |
+
+### Lenses tested on this camera
+
+- `jai_6mm_0628`: see `lenses/jai_6mm_0628.md`
+
+---
+Generated from `WS/config/camera_catalog.sqlite`: edit the catalog (`camera-lab two-d catalog ...`), never this file.

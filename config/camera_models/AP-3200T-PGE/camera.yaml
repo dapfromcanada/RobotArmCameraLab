@@ -1,0 +1,277 @@
+# Generated from WS/config/camera_catalog.sqlite: edit the catalog, not this file.
+schema_version: 1
+model: AP-3200T-PGE
+vendor: JAI Corporation
+firmware_tested:
+- 0.0.3.4
+design_mode: raw
+startup:
+  procedure:
+  - load factory Default (UserSetLoad
+  - live only)
+  - apply the design mode
+  - read back
+  - verify on the image
+  factory_default:
+    pixel_format: RGB8
+    exposure_us: 82402
+    gain_db: 0
+    white_balance:
+      red: 1.0
+      green: 1.0
+      blue: 1.0
+  design_mode_settings:
+    pixel_format: RGB12V1Packed
+    gain_db: 0
+    white_balance:
+      red: 1.0
+      green: 1.0
+      blue: 1.0
+    prism.exposure_mode: common
+    prism.gain_mode: master
+  verify:
+  - settings read back equal
+  - exposure x2 -> signal x2.00
+  - dark black ~100 DN
+  rgb12_bypasses:
+  - gamma LUT
+  - white balance
+  boot_user_set:
+    feature: false
+    lab: Default (nothing saved)
+    site: UserSet1 after a confirmed setup
+  user_set_stores:
+  - exposure_us
+  - gain_db
+  - pixel_format
+  - white_balance
+  software_reboot:
+    node: DeviceReset
+    equivalent_to_power_cycle: null
+  warm_up:
+    steady_c: 60
+    minutes: 15
+    black_drift_dn: -4
+  user_set_save_needs_stream_stopped: true
+sensor:
+  name: 3 x global-shutter CMOS behind a prism (sensor not named in the manual)
+  megapixels: 3.2
+  pixels:
+  - 2064
+  - 1544
+  pixel_um: 3.45
+  optical_format: 1/1.8 type, F4 prism optical system
+  colour: prism
+  shutter: global
+signal_path:
+  gamma_default: 0.45
+  colour_matrix: present (bypassed in RGB12V1Packed per profile notes)
+outputs:
+  linear:
+    pixel_format: RGB12V1Packed
+    bits: 12
+    gain_per_exposure_doubling: null
+  formats:
+  - RGB8
+  - RGB10V1Packed
+  - RGB10p32
+  - RGB12V1Packed
+  black_level_control:
+    node: BlackLevel[DigitalAll]
+    range_lsb_12bit:
+    - -133
+    - 255
+    default: 0
+    black_at_default_dn: 100
+controls:
+  exposure_us_min: 14.73
+  exposure_us_max: 8000000
+  gain:
+    kind: analog
+    master_range_db:
+    - 0
+    - 18
+    individual_range_db:
+    - 0
+    - 36.13
+    master_zero_is_individual_plus_db: 6
+  gain_mode_individual_0db:
+    signal_vs_master: 0.48
+    full_well_e: 9626
+    read_noise_e: 4.4
+    peak_snr: 98
+    gain_writable: false
+  exposure_frame_margin_us:
+    RGB12V1Packed: 1107
+    RGB8: 737
+  white_balance: 'per-sensor analog gain (AnalogRed/AnalogBlue -6.5..12 dB): keep
+    1.0 in raw'
+  per_sensor_exposure: ExposureTimeMode Individual
+  user_sets:
+    slots:
+    - Default
+    - UserSet1
+    - UserSet2
+    - UserSet3
+    boot_set: false
+timing:
+  fps_full_frame:
+    RGB8: 12.0
+    RGB10V1Packed: 9.0
+    RGB10p32: 9.0
+    RGB12V1Packed: 8.0
+  sensor_max_fps: 24.2
+  row_time_us: null
+  pipeline:
+    frame_interval_ms: 123
+    frame_mb_in_memory: 19.1
+    pc_to_float_ms: 20
+  trigger_to_image_ms: null
+  settle_frame_periods: 1
+  short_exposure_frame_variation_pct:
+    '50': 6.5
+    '100': 3.8
+    '250': 2.2
+    '500': 1.0
+    '1000': 0.8
+    '2000': 0.7
+    '5000': 0.6
+setting_names:
+  exposure_us: ExposureTime
+  gain_db: Gain[AnalogAll] (multiplier, converted to dB by the driver)
+  pixel_format: PixelFormat
+  frame_rate_hz: AcquisitionFrameRate
+  white_balance: Gain[AnalogRed / AnalogGreen / AnalogBlue]
+  prism.exposure_mode: ExposureTimeMode (Common / Individual)
+  prism.gain_mode: IndividualGainMode (Off = master / On)
+  prism.exposure_red_us: ExposureTime[Red] (Individual mode)
+performance:
+  conditions:
+    gain_db: 0
+    black_level_pct: null
+  full_scale_dn: 4095
+  saturation_dn: 4094
+  runs: 3
+  units: 1
+  black_dn: 100
+  read_noise_dn: 1.71
+  read_noise_e: 1.9
+  row_noise_dn: 0.29
+  dsnu_dn: 3.6
+  system_gain_dn_per_e: 0.893
+  full_well_e: 4470
+  dynamic_range_db: 67.2
+  dynamic_range_stops: 11.2
+  dark_current_dn_s: 0
+  linearity_error_pct: 0.11
+  peak_snr: 64.8
+  prnu_pct: 0.69
+  vignetting_corner_ratio:
+    f2.8: 0.82
+    f4: 0.93
+  corner_colour_cast_pct:
+    f2.8: 1.4
+    f5.6: 0.6
+    f8: 0.3
+  noise_model:
+    formula: sigma^2 = read^2 + signal_dn * 0.893
+    a_dn2: 3.03
+    b_dn: 0.893
+  snr_vs_signal:
+    monotonic: true
+    points:
+      '0.021': 9.6
+      '0.031': 11.8
+      '0.054': 15.7
+      '0.077': 18.9
+      '0.116': 23.2
+      '0.155': 26.7
+      '0.233': 32.9
+      '0.312': 37.9
+      '0.39': 42.4
+      '0.469': 46.4
+      '0.548': 50.1
+      '0.626': 53.5
+      '0.705': 56.7
+      '0.785': 59.9
+      '0.904': 64.8
+    best:
+      level: 0.904
+      snr: 64.8
+  quantization:
+  - from_level: 0.0
+    step_dn: 1
+  colour:
+    light: DC LED floods (bench); depends on the place
+    r_over_g:
+    - 1.03
+    - 0.84
+    - 1.27
+    b_over_g:
+    - 0.82
+    - 0.92
+    - 0.72
+    prnu_pct:
+      R: 0.64
+      G: 0.65
+      B: 0.66
+  hot_pixels_8sigma_100ms:
+  - 3504
+  - 3648
+  gain_table:
+    '0':
+      dn_per_e: 0.883
+      read_noise_e: 2.0
+      full_well_e: 4530
+    '6':
+      dn_per_e: 1.74
+      read_noise_e: 1.8
+      full_well_e: 2298
+    '12':
+      dn_per_e: 3.45
+      read_noise_e: 1.7
+      full_well_e: 1158
+    '18':
+      dn_per_e: 6.87
+      read_noise_e: 1.6
+      full_well_e: 582
+  repeatability_spread_pct:
+    dark: 1.0
+    flat: 0.3
+    colour: 0.4
+limitations:
+- '12-bit at 8 fps over GigE (12 fps in 8-bit): the sensor could do 24 fps'
+- 'full well 4470 e- at master gain 0 dB: peak SNR about 65; dynamic range 67 dB (11
+  stops)'
+- 'gamma 0.45 and white balance are on in 8/10-bit formats: only RGB12V1Packed is
+  raw'
+- 'no boot-set feature: once any user set is saved the camera boots from UserSet1'
+diagnostics:
+- meaning: not in RGB12V1Packed (gamma LUT on)
+  signature: doubling exposure gives less than x2
+- meaning: white balance gains not 1.0
+  signature: colours already balanced in raw
+- meaning: BlackLevel changed, or a fault / heat (DeviceTemperature)
+  signature: black far from 100 DN with the cap on
+- meaning: 'normal once a user set was saved: boots from UserSet1'
+  signature: settings differ after power-up
+- meaning: the stream must be stopped
+  signature: UserSetSave fails
+- meaning: prism or lens misalignment, or a lens not made for prism cameras
+  signature: red / blue fringes at edges
+state_checks:
+  linear_output:
+    method: exposure E and 2E, 5-40 % of full scale
+    expect_ratio:
+    - 1.95
+    - 2.05
+  dark:
+    method: lens cap on, 10 ms, gain 0, BlackLevel 0, camera warm (~60 C)
+    black_dn: 100
+    read_noise_dn: 1.8
+  settling:
+    expect_stale_frames: 0
+open_questions:
+- DeviceReset vs a real power cycle
+- exposure x2 linearity check on the image (two-d verify)
+- temperature behaviour

@@ -117,6 +117,25 @@ MIGRATIONS: tuple[str, ...] = (
 
     INSERT INTO schema_version (version) VALUES (0);
     """,
+    # 2: the papers' prose and the sheets' facts (Derek 2026-10-25: papers from the database)
+    """
+    CREATE TABLE paper_sections (
+        model_id TEXT NOT NULL REFERENCES camera_models (id),
+        lens_id TEXT NOT NULL DEFAULT '',    -- '' = the camera paper, else the pair paper
+        ord INTEGER NOT NULL,                -- order in the paper
+        heading TEXT NOT NULL,               -- '' = the text before the first heading
+        body TEXT NOT NULL,
+        PRIMARY KEY (model_id, lens_id, ord)
+    );
+
+    CREATE TABLE model_facts (
+        model_id TEXT NOT NULL REFERENCES camera_models (id),
+        key TEXT NOT NULL,                   -- path in the sheet, '/'-separated
+        value TEXT NOT NULL,                 -- JSON
+        source TEXT,                         -- a run id, 'manual', 'import', ...
+        PRIMARY KEY (model_id, key)
+    );
+    """,
 )
 
 SCHEMA_VERSION = len(MIGRATIONS)

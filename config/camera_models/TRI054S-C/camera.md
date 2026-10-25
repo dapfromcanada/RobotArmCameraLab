@@ -1,4 +1,4 @@
-# Lucid Triton TRI054S-C — camera white paper (DRAFT v14, 2026-10-24: fingerprint 20261024T084539Z, 3 runs per measurement)
+# Lucid Triton TRI054S-C — camera white paper (generated 2026-10-25 13:22 UTC from the camera catalog; runs: 233100505/20261024T084539Z)
 
 What this camera is, how it works, how it behaves and how well it performs, measured on the
 camera_lab bench. Machine-readable twin: `TRI054S-C.yaml`.
@@ -311,3 +311,33 @@ than a Kowa 8 mm at f/16 under bright diffuse light): an ND filter or extra diff
 - Camera profile: `config/camera_profiles/233100505.yaml`
 - Fingerprints: `WS/config/camera_fingerprints/233100505/`
 - Lucid TRI054S documentation (firmware 1.138.0.0): `Manuals/vision/lucid_triton/`
+
+## 13. Measured data (generated from the catalog)
+Every number below is from the catalog (`camera-lab two-d catalog runs`).
+
+| run | kind | lens | iris | °C | used |
+|---|---|---|---|---|---|
+| 233100505/20261021T202300Z | fingerprint | - | - | - | history only |
+| 233100505/20261021T203734Z | fingerprint | - | - | - | history only |
+| 233100505/20261024T084539Z | fingerprint | kowa_8mm | f/1.4 | - | yes |
+
+### Headline numbers per fingerprint
+
+| run | black DN | read noise DN | row noise DN | dark current DN/s | DN/e- | full well e- | linearity % | PRNU % |
+|---|---|---|---|---|---|---|---|---|
+| 20261024T084539Z | 204.6 | 2.426 | 0.3221 | 0 | 0.02537 | 1.501e+05 | 0.1042 | 1.264 |
+
+### Darks per exposure (233100505/20261024T084539Z)
+
+| exposure ms | black DN | read noise DN | hot pixels |
+|---|---|---|---|
+| 1 | 204.6 | 2.426 | - |
+| 10 | 205 | 2.542 | - |
+| 100 | 203.8 | 3.761 | - |
+
+### Lenses tested on this camera
+
+- `kowa_8mm`: see `lenses/kowa_8mm.md`
+
+---
+Generated from `WS/config/camera_catalog.sqlite`: edit the catalog (`camera-lab two-d catalog ...`), never this file.

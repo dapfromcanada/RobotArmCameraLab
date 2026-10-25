@@ -876,7 +876,17 @@ def fingerprint(ctx: typer.Context, camera: CameraArg) -> None:
 # ------------------------------------------------------------------ catalog
 @catalog_app.command("import")
 @handle_errors
-def catalog_import_cmd(json_out: JsonOpt = False) -> None:
+def catalog_import_cmd(
+    papers: Annotated[
+        bool,
+        typer.Option(
+            "--papers",
+            help="Also load the hand-written papers (config/camera_models/<model>.md / .yaml) "
+            "as sections and sheet cells: once, before they are retired (it overwrites edits).",
+        ),
+    ] = False,
+    json_out: JsonOpt = False,
+) -> None:
     """Load the bench file's lenses, the camera profiles and every fingerprint folder into the
     catalog. Safe to repeat: rows are updated in place (each change logged).
 
@@ -884,11 +894,18 @@ def catalog_import_cmd(json_out: JsonOpt = False) -> None:
     """
     from camera_lab.two_d.catalog import Catalog
     from camera_lab.two_d.catalog.importer import import_all
+    from camera_lab.two_d.catalog.papers import import_papers
 
     with Catalog() as cat:
         rep = import_all(cat)
+        paper_facts = import_papers(cat) if papers else {}
         path = cat.path
-    data = {**rep.__dict__, "notes": list(rep.notes), "catalog": str(path)}
+    data = {
+        **rep.__dict__,
+        "notes": list(rep.notes),
+        "catalog": str(path),
+        "papers": paper_facts,
+    }
     emit(
         data,
         json_out,
@@ -1005,3 +1022,67 @@ def catalog_changes_cmd(
         )
 
     emit(rows, json_out, human)
+
+
+@catalog_app.command("papers")
+@handle_errors
+def catalog_papers_cmd(
+    model: Annotated[str | None, typer.Option(help="One camera model (all if omitted).")] = None,
+    json_out: JsonOpt = False,
+) -> None:
+    """Generate the white papers from the catalog: config/camera_models/<model>/camera.md +
+    camera.yaml and lenses/<lens>.md + .yaml per lens tested on the model.
+
+    Example: camera-lab two-d catalog papers --model AP-3200T-PGE
+    """
+    from camera_lab.two_d.catalog import Catalog
+    from camera_lab.two_d.catalog.papers import write_papers
+
+    with Catalog() as cat:
+        models = [model] if model else [m["id"] for m in cat.camera_models()]
+        written = {m: [str(p) for p in write_papers(cat, m)] for m in models}
+    emit(
+        written,
+        json_out,
+        lambda: "\n".join(
+            (f"{m}: {len(fs)} files in {Path(fs[0]).parent}" if fs else f"{m}: nothing yet")
+            for m, fs in written.items()
+        ),
+    )
+
+
+@catalog_app.command("facts")
+@handle_errors
+def catalog_facts_cmd(
+    model: Annotated[str, typer.Argument(help="Camera model, e.g. AP-3200T-PGE.")],
+    set_: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--set",
+            help="KEY=JSON, e.g. performance/black_dn=100 (one cell of the sheet; logged).",
+        ),
+    ] = None,
+    prefix: Annotated[str, typer.Option(help="Only cells under this path.")] = "",
+    json_out: JsonOpt = False,
+) -> None:
+    """The model's sheet as cells (key = path in the sheet); --set changes one cell, logged
+    in the change log. Regenerate the papers afterwards (catalog papers).
+
+    Example: camera-lab two-d catalog facts AP-3200T-PGE --prefix performance
+    """
+    import json as _json
+
+    from camera_lab.two_d.catalog import Catalog
+
+    with Catalog() as cat:
+        for item in set_ or ():
+            key, sep, raw = item.partition("=")
+            if not sep:
+                raise typer.BadParameter(f"--set needs KEY=JSON, got {item!r}")
+            try:
+                value = _json.loads(raw)
+            except ValueError:
+                value = raw  # plain text
+            cat.set_fact(model, key.strip(), value, source="manual", actor="human")
+        facts = {k: v for k, v in cat.facts(model).items() if k.startswith(prefix)}
+    emit(facts, json_out, lambda: "\n".join(f"{k} = {_json.dumps(v)}" for k, v in facts.items()))

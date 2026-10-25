@@ -253,3 +253,74 @@ def test_cli_imports_and_lists(tmp_roots: Path, monkeypatch: pytest.MonkeyPatch)
     assert res.exit_code == 0 and "jai_6mm_0628: JAI 6 mm 0628-C3" in res.stdout
     res = run(app, ["two-d", "catalog", "changes", "--limit", "5"])
     assert res.exit_code == 0 and "import" in res.stdout
+
+
+def test_sheet_cells_round_trip_and_sections_split() -> None:
+    from camera_lab.two_d.catalog.papers import flatten, split_sections, unflatten
+
+    doc = {
+        "model": "X",
+        "performance": {"black_dn": 100, "snr_vs_signal": {"points": {0.5: 40}}},
+        "limitations": ["a", "b"],
+        "empty": {},
+    }
+    cells = flatten(doc)
+    assert cells["performance/black_dn"] == 100 and cells["limitations"] == ["a", "b"]
+    assert unflatten(cells) == {
+        **doc,
+        "performance": {"black_dn": 100, "snr_vs_signal": {"points": {"0.5": 40}}},
+    }  # keys as in JSON
+    md = "# Title (v1)\nintro\n\n## 1. Summary\ntext\n### sub\nmore\n## 2. Next\nend\n"
+    assert split_sections(md) == [
+        ("", "# Title (v1)\nintro"),
+        ("1. Summary", "text\n### sub\nmore"),
+        ("2. Next", "end"),
+    ]
+
+
+def test_papers_are_generated_from_the_catalog(tmp_path: Path) -> None:
+    """The hand-written papers become rows and cells; the generated sheet gives the tools the
+    same values; a fingerprint updates the cells the tools read; edits are logged."""
+    from camera_lab.core.config import load_yaml_model
+    from camera_lab.two_d.camera_models import ModelSheet, load_model_sheet
+    from camera_lab.two_d.catalog.papers import import_papers, update_facts_from_run, write_papers
+
+    cfg = tmp_path / "config"
+    shutil.copytree(app_config_dir(), cfg)
+    models = cfg / "camera_models"  # the hand-written layout, as before the migration
+    for name in ("camera.md", "camera.yaml"):
+        src = models / "AP-3200T-PGE" / name
+        (models / f"AP-3200T-PGE{src.suffix}").write_text(src.read_text())
+    shutil.rmtree(models / "AP-3200T-PGE")
+    fp = tmp_path / "fingerprints" / "U330439" / "20261025T101320Z"
+    fp.mkdir(parents=True)
+    (fp / "fingerprint.yaml").write_text(yaml.safe_dump(_fp_doc("JAI 6 mm 0628-C3, f/2.8")))
+    out = tmp_path / "papers"
+    with Catalog(tmp_path / "c.sqlite") as c:
+        import_all(c, config_dir=cfg, fingerprints=tmp_path / "fingerprints")
+        facts = import_papers(c, cfg)
+        assert facts["AP-3200T-PGE"] > 100
+        files = write_papers(c, "AP-3200T-PGE", out)
+        assert {f.name for f in files} == {
+            "camera.md",
+            "camera.yaml",
+            "jai_6mm_0628.md",
+            "jai_6mm_0628.yaml",
+        }
+        old = load_yaml_model(cfg / "camera_models" / "AP-3200T-PGE.yaml", ModelSheet)
+        assert load_model_sheet("AP-3200T-PGE", out) == old  # what the tools read is unchanged
+        md = (out / "AP-3200T-PGE" / "camera.md").read_text()
+        assert md.startswith("# JAI Apex AP-3200T-PGE — camera white paper (generated ")
+        assert "## 1. Summary" in md and "Measured data (generated from the catalog)" in md
+        assert "| 20261025T101320Z | 100 | 1.73 |" in md
+        pair = (out / "AP-3200T-PGE" / "lenses" / "jai_6mm_0628.md").read_text()
+        assert "| f/5.6 | - | 0.198 |" in pair
+        changed = update_facts_from_run(c, "AP-3200T-PGE", "U330439/20261025T101320Z")
+        assert "performance/read_noise_dn" in changed
+        assert c.facts("AP-3200T-PGE")["performance/read_noise_dn"] == 1.73
+        c.set_fact("AP-3200T-PGE", "performance/black_dn", 101, source="manual")
+        write_papers(c, "AP-3200T-PGE", out)
+        sheet = load_model_sheet("AP-3200T-PGE", out)
+        assert sheet is not None and sheet.performance.black_dn == 101
+        log = [x for x in c.changes(50) if x["tbl"] == "model_facts" and x["col"] == "value"]
+        assert any(x["row_key"] == "AP-3200T-PGE/performance/black_dn" for x in log)

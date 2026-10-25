@@ -1,6 +1,6 @@
 """Site light assessment: is the light on this scene good enough for this camera, and what
 should change? No test jig — only the camera, whatever it looks at, and the camera model's
-bench baseline (``config/camera_models/<model>.yaml``), which turns the measurements into
+bench baseline (``config/camera_models/<model>/camera.yaml``), which turns the measurements into
 verdicts.
 
 Checks (each pass / warn / fail / info, with the measured value, what the camera model
@@ -35,7 +35,7 @@ import numpy.typing as npt
 from pydantic import BaseModel, ConfigDict, Field
 
 from camera_lab.core.paths import data_root, safe_join, validate_serial
-from camera_lab.two_d.camera_models import ModelSheet, load_model_sheet
+from camera_lab.two_d.camera_models import ModelSheet, load_model_sheet, paper_paths
 from camera_lab.two_d.errors import ConfigurationError
 from camera_lab.two_d.fingerprint import measure as fm
 from camera_lab.two_d.models import CameraSettingsPatch, is_bayer
@@ -689,7 +689,9 @@ def assess_light(
         camera_id=serial,
         model=info.model,
         created_utc=datetime.now(UTC).isoformat(),
-        baseline=f"config/camera_models/{info.model}.yaml" if sheet else "none",
+        baseline=str(paths[1])
+        if sheet and (paths := paper_paths(info.model, sheet_root))
+        else "none",
         verdict=worst,
         recommended_exposure_us=rec,
         checks=tuple(a.checks),

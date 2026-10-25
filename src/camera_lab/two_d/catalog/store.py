@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import sqlite3
@@ -585,6 +586,88 @@ class Catalog:
             (model_id, quantity),
         )
         return [(r["run_id"], Result(**{c: r[c] for c in RESULT_COLUMNS})) for r in rows]
+
+    # ------------------------------------------------- papers: prose, facts
+    def set_section(
+        self,
+        model_id: str,
+        ord_: int,
+        heading: str,
+        body: str,
+        *,
+        lens_id: str = "",
+        actor: Actor = "human",
+        reason: str | None = None,
+    ) -> bool:
+        """One prose section of a paper (``lens_id`` '' = the camera paper)."""
+        with self.transaction() as conn:
+            return self._write(
+                conn,
+                "paper_sections",
+                {"model_id": model_id, "lens_id": lens_id, "ord": ord_},
+                {"heading": heading, "body": body},
+                actor,
+                reason,
+            )
+
+    def sections(self, model_id: str, lens_id: str = "") -> list[tuple[str, str]]:
+        return [
+            (r["heading"], r["body"])
+            for r in self._conn.execute(
+                "SELECT heading, body FROM paper_sections WHERE model_id = ? AND lens_id = ? "
+                "ORDER BY ord",
+                (model_id, lens_id),
+            )
+        ]
+
+    def set_fact(
+        self,
+        model_id: str,
+        key: str,
+        value: Any,
+        *,
+        source: str | None = None,
+        actor: Actor = "human",
+        reason: str | None = None,
+    ) -> bool:
+        """One value of the model's sheet (a cell: ``performance/black_dn``)."""
+        if not key or any(not part for part in key.split("/")):
+            raise CatalogError(f"invalid fact key {key!r}")
+        with self.transaction() as conn:
+            return self._write(
+                conn,
+                "model_facts",
+                {"model_id": model_id, "key": key},
+                {"value": json.dumps(value, sort_keys=True), "source": source},
+                actor,
+                reason,
+            )
+
+    def delete_fact(self, model_id: str, key: str, *, actor: Actor = "human") -> None:
+        with self.transaction() as conn:
+            conn.execute("DELETE FROM model_facts WHERE model_id = ? AND key = ?", (model_id, key))
+            conn.execute(
+                "INSERT INTO change_log (utc, actor, tbl, row_key, col, old, new, reason) "
+                "VALUES (?, ?, 'model_facts', ?, NULL, NULL, 'deleted', NULL)",
+                (_utc(), actor, f"{model_id}/{key}"),
+            )
+
+    def facts(self, model_id: str) -> dict[str, Any]:
+        """key → value of every fact of a model."""
+        return {
+            r["key"]: json.loads(r["value"])
+            for r in self._conn.execute(
+                "SELECT key, value FROM model_facts WHERE model_id = ? ORDER BY rowid", (model_id,)
+            )
+        }
+
+    def pairs(self, model_id: str) -> list[str]:
+        return [
+            str(r[0])
+            for r in self._conn.execute(
+                "SELECT lens_id FROM pairs WHERE model_id = ? ORDER BY lens_id", (model_id,)
+            )
+        ]
 
     def changes(self, limit: int = 50) -> list[dict[str, Any]]:
         return [

@@ -16,6 +16,7 @@ from typing import Any, Literal
 import yaml
 
 from camera_lab.core.paths import app_config_dir
+from camera_lab.two_d.camera_models import paper_paths
 from camera_lab.two_d.catalog.store import Catalog, Result
 from camera_lab.two_d.fingerprint.bench import load_bench
 from camera_lab.two_d.fingerprint.common import fingerprints_root
@@ -420,8 +421,8 @@ def import_all(
             notes.append(f"{serial}: no model found in the profile label or a fingerprint")
             continue
         ch = prof.get("characteristics") or {}
-        sheet_p = cfg / "camera_models" / f"{model}.yaml"
-        sheet = yaml.safe_load(sheet_p.read_text()) if sheet_p.exists() else {}
+        paths = paper_paths(model, cfg / "camera_models")
+        sheet = yaml.safe_load(paths[1].read_text()) if paths is not None else {}
         cat.upsert_camera_model(
             model,
             vendor=sheet.get("vendor")

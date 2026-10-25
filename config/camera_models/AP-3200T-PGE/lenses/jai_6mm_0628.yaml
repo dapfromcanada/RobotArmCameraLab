@@ -1,0 +1,39 @@
+# Generated from WS/config/camera_catalog.sqlite: edit the catalog, not this file.
+schema_version: 1
+model: AP-3200T-PGE
+lens: jai_6mm_0628
+lens_name: JAI 6 mm 0628-C3
+stops:
+- f_number: 2.8
+  end_stop: open
+  light_vs_open: 1.0
+  corner_ratio:
+    B: 0.8272202391109977
+    G: 0.8191890493836844
+    R: 0.8159388662881242
+- f_number: 4.0
+  end_stop: null
+  light_vs_open: null
+  corner_ratio: {}
+- f_number: 5.6
+  end_stop: null
+  light_vs_open: 0.1979367778077733
+  corner_ratio:
+    B: 1.0504420951415938
+    G: 1.0485767681887226
+    R: 1.0445344865431876
+- f_number: 8.0
+  end_stop: null
+  light_vs_open: null
+  corner_ratio:
+    B: 1.0358993324384402
+    G: 1.0378578035206558
+    R: 1.035018627446018
+- f_number: 11.0
+  end_stop: null
+  light_vs_open: null
+  corner_ratio: {}
+- f_number: 16.0
+  end_stop: closed
+  light_vs_open: null
+  corner_ratio: {}

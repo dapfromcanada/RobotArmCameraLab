@@ -1,0 +1,31 @@
+# Generated from WS/config/camera_catalog.sqlite: edit the catalog, not this file.
+schema_version: 1
+model: TRI054S-C
+lens: kowa_8mm
+lens_name: Kowa 8 mm
+stops:
+- f_number: 1.4
+  end_stop: open
+  light_vs_open: 1.0
+  corner_ratio:
+    all: 0.8795425461010237
+- f_number: 2.0
+  end_stop: null
+  light_vs_open: 0.74
+  corner_ratio: {}
+- f_number: 2.8
+  end_stop: null
+  light_vs_open: 0.352
+  corner_ratio: {}
+- f_number: 4.0
+  end_stop: null
+  light_vs_open: 0.187
+  corner_ratio: {}
+- f_number: 8.0
+  end_stop: null
+  light_vs_open: 0.0386
+  corner_ratio: {}
+- f_number: 16.0
+  end_stop: closed
+  light_vs_open: 0.0094
+  corner_ratio: {}

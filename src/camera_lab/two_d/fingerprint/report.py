@@ -215,6 +215,7 @@ class ReportMixin(SessionBase):
         the fingerprint: the folder is written first, and `catalog import` can redo it."""
         from camera_lab.two_d.catalog import Catalog
         from camera_lab.two_d.catalog.importer import import_run
+        from camera_lab.two_d.catalog.papers import update_facts_from_run, write_papers
 
         ident = self.results["identity"].data
         try:
@@ -246,9 +247,16 @@ class ReportMixin(SessionBase):
                         reason="lens of a fingerprint, from the bench file",
                     )
                 n, pairs = import_run(cat, folder / "fingerprint.yaml", lens_id=self.lens_id)
+                run_id = f"{folder.parent.name}/{folder.name}"
+                model = str(ident["model"])
+                changed = update_facts_from_run(cat, model, run_id)
+                written = write_papers(cat, model)
         except Exception as exc:  # the files are written: never lose the fingerprint
             return f" ; catalog NOT updated ({type(exc).__name__}: {exc}): run `catalog import`"
-        return f" ; catalog: {n} results, {pairs} per-stop values"
+        return (
+            f" ; catalog: {n} results, {pairs} per-stop values, {len(changed)} sheet values "
+            f"updated; papers regenerated ({len(written)} files in {written[0].parent})"
+        )
 
     def _user_set_lines(self) -> list[str]:
         """Every setting: its test value, kept after the software reboot and after a real

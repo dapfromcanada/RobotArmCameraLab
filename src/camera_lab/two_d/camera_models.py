@@ -1,5 +1,6 @@
-"""Camera model sheets (``APP/config/camera_models/<model>.yaml``): the machine-readable twin
-of each camera model's white paper, written from the bench fingerprint.
+"""Camera model sheets (``APP/config/camera_models/<model>/camera.yaml``, generated from the
+camera catalog; older ``<model>.yaml`` still read): the machine-readable twin of each camera
+model's white paper, written from the bench fingerprint.
 
 Only the parts camera_lab's tools rely on are validated; the rest of the sheet is
 documentation and is kept but not interpreted. Loading uses ``yaml.safe_load`` with a size
@@ -111,11 +112,32 @@ def models_dir() -> Path:
     return app_config_dir() / MODELS_DIRNAME
 
 
-def load_model_sheet(model: str, root: Path | None = None) -> ModelSheet | None:
-    """The sheet of camera ``model`` (e.g. ``TRI054S-C``), or None when there is none."""
+def paper_paths(model: str, root: Path | None = None) -> tuple[Path, Path] | None:
+    """(camera paper .md, sheet .yaml) of camera ``model``: the generated
+    ``<model>/camera.md`` / ``camera.yaml`` (from the catalog, 2026-10-25), else the older
+    hand-written ``<model>.md`` / ``<model>.yaml``; None when there is no sheet."""
     if MODEL_NAME_RE.fullmatch(model) is None:
         return None
-    path = safe_join(root if root is not None else models_dir(), f"{model}.yaml")
-    if not path.exists():
-        return None
-    return load_yaml_model(path, ModelSheet)
+    base = root if root is not None else models_dir()
+    folder = safe_join(base, model)
+    for md, sheet in (
+        (folder / "camera.md", folder / "camera.yaml"),
+        (safe_join(base, f"{model}.md"), safe_join(base, f"{model}.yaml")),
+    ):
+        if sheet.exists():
+            return md, sheet
+    return None
+
+
+def lens_papers(model: str, root: Path | None = None) -> dict[str, Path]:
+    """lens id → the generated camera + lens paper of camera ``model``."""
+    if MODEL_NAME_RE.fullmatch(model) is None:
+        return {}
+    folder = safe_join(root if root is not None else models_dir(), model) / "lenses"
+    return {p.stem: p for p in sorted(folder.glob("*.md"))} if folder.is_dir() else {}
+
+
+def load_model_sheet(model: str, root: Path | None = None) -> ModelSheet | None:
+    """The sheet of camera ``model`` (e.g. ``TRI054S-C``), or None when there is none."""
+    paths = paper_paths(model, root)
+    return load_yaml_model(paths[1], ModelSheet) if paths is not None else None

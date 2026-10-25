@@ -1,0 +1,349 @@
+# Generated from WS/config/camera_catalog.sqlite: edit the catalog, not this file.
+schema_version: 1
+model: TRI054S-C
+vendor: Lucid Vision Labs
+firmware_tested:
+- 1.138.0.0
+design_mode: raw_hdr
+startup:
+  procedure:
+  - load factory Default (UserSetLoad
+  - live only)
+  - apply the design mode
+  - read back
+  - verify on the image
+  factory_default:
+    pixel_format: BayerRG8
+    exposure_us: 29991
+    gain_db: 0
+    black_level_pct: 0
+    lut:
+      enabled: true
+      tone_mapping: GammaPointFive
+    colour_transformation: true
+    hdr:
+      tuning: false
+      output: HDR
+      enhancement: true
+      clamping: true
+      channel_gains_db:
+      - 19.8
+      - 4.2
+      - 29.4
+      - 4.2
+    white_balance:
+      auto: Continuous
+      ratios:
+      - 1.01
+      - 1.07
+      - 1.0
+    frame_rate: free run (19.7 fps BayerRG8)
+    roi:
+    - 2880
+    - 1860
+  design_mode_settings:
+    pixel_format: BayerRG24
+    gain_db: 0
+    white_balance:
+      red: 1.0
+      green: 1.0
+      blue: 1.0
+    hdr.enabled: 'off'
+    hdr.output: HDR
+    lut.enabled: 'off'
+    color.transformation: 'off'
+    black.level: 1.0
+  verify:
+  - settings read back equal
+  - exposure x2 -> signal x2.00
+  - finest shadow step 1 DN
+  - no dark pixel at 0
+  white_balance_multiplies_raw: true
+  boot_user_set:
+    lab: Default
+    site: UserSet1 after a confirmed setup
+  user_set_stores:
+  - PixelFormat
+  - ExposureTime
+  - Gain
+  - BlackLevel
+  - LUTEnable
+  - ColorTransformationEnable
+  - BalanceRatio
+  - HDROutput
+  - HDRImageEnhancementEnable
+  - HDRDigitalClampingEnable
+  - AcquisitionFrameRate
+  - Width
+  - Height
+  - OffsetX
+  - OffsetY
+  - TriggerMode
+  user_set_does_not_store:
+  - HDRTuningEnable
+  - HDR channel exposures and gains
+  software_reboot:
+    node: DeviceReset
+    back_after_s: 19
+    equivalent_to_power_cycle: true
+  hdr_image_enhancement:
+    default: 'on'
+    keep: 'on'
+    effect: off raises temporal noise 10-32 %, linearity unchanged
+  hdr_digital_clamping:
+    default: 'on'
+    effect: none measurable on linear output
+sensor:
+  name: Sony IMX490
+  megapixels: 5.4
+  colour: bayer_rggb
+  shutter: rolling
+  hdr:
+    channels: 4
+    merge: on-chip, linear 24-bit
+    dynamic_range_db_min: 120
+    factory_channel_gains_db:
+    - 19.8
+    - 4.2
+    - 29.4
+    - 4.2
+signal_path:
+  lut_default:
+    enabled: true
+    tone_mapping: GammaPointFive
+  colour_transformation_default: true
+outputs:
+  linear:
+    pixel_format: BayerRG24
+    lut: 'off'
+    colour_transformation: 'off'
+    gain_per_exposure_doubling: 2.0
+  lut_on:
+    gain_per_exposure_doubling: 1.41
+  single_channel:
+    hdr_output:
+    - HDRChannel0
+    - HDRChannel1
+    - HDRChannel2
+    - HDRChannel3
+    bits: 12
+  black_level_control:
+    range_pct:
+    - 0
+    - 12.5
+    default: 0
+    adds_pct_of_4095: true
+    keep_at_least: 1
+  digital_gain_after_merge: true
+controls:
+  exposure_us_min: 86.3
+  exposure_longer_than_frame_lowers_fps: true
+  stream_stop_required:
+  - HDROutput
+  - LUTEnable
+  - PixelFormat
+  stream_locked_writes: ignored silently
+  hdr_tuning_makes_exposure_gain_read_only: true
+  user_sets:
+    slots:
+    - Default
+    - UserSet1
+    - UserSet2
+    boot_set: true
+    stores_hdr: false
+  power_up:
+    hdr_tuning: 'off'
+    channel_gains: factory
+timing:
+  fps_full_frame:
+    Mono8: 20.8
+    BayerRG8: 20.8
+    Mono12p: 13.9
+    BayerRG12p: 13.9
+    Mono16: 10.4
+    BayerRG16: 10.4
+    RGB8: 6.93
+    Mono24: 6.93
+    BayerRG24: 6.93
+    RGB12p: 4.62
+    RGB16: 3.46
+  exposure_to_fps:
+    '61000': 16
+    '122000': 8
+    '244000': 4
+  triggered_max_rate_factor: 0.5
+  trigger_to_image_ms: null
+  settle_frame_periods: 2
+  row_time_us: 23.5
+  full_frame_readout_ms: 44
+setting_names:
+  exposure_us: ExposureTime
+  gain_db: Gain
+  pixel_format: PixelFormat
+  frame_rate_hz: AcquisitionFrameRate
+  white_balance: BalanceRatio[BalanceRatioSelector]
+  hdr.enabled: HDRTuningEnable
+  hdr.output: HDROutput
+  hdr.enhancement: HDRImageEnhancementEnable
+  hdr.clamping: HDRDigitalClampingEnable
+  hdr.chN.exposure_us: HDRChannelExposureTime[HDRTuningChannelSelector=N]
+  hdr.chN.gain_db: HDRChannelAnalogGain[HDRTuningChannelSelector=N]
+  lut.enabled: LUTEnable
+  lut.tone_mapping: LUTToneMapping
+  color.transformation: ColorTransformationEnable
+  black.level: BlackLevel
+performance:
+  conditions:
+    gain_db: 0
+    black_level_pct: 1
+  full_scale_dn: 16777215
+  runs: 3
+  units: 1
+  black_dn: 40
+  read_noise_dn: 2.43
+  row_noise_dn: 0.32
+  dsnu_dn: 0.6
+  dynamic_range_db: 136.9
+  dynamic_range_stops: 22.7
+  dark_current_dn_s: 0
+  linearity_error_pct: 0.1
+  peak_snr: 312
+  prnu_pct: 1.26
+  vignetting_corner_ratio: 0.88
+  noise_model:
+    formula: sigma^2 = a + b*signal, per channel regime
+    a_dn2: null
+    b_dn: null
+  snr_vs_signal:
+    monotonic: false
+    points:
+      '0.0003': 27
+      '0.0005': 39
+      '0.0011': 57
+      '0.0022': 80
+      '0.0042': 22
+      '0.0083': 33
+      '0.0166': 48
+      '0.0334': 42
+      '0.0673': 62
+      '0.135': 104
+      '0.27': 161
+      '0.526': 235
+      '0.79': 287
+    best:
+      level: 0.79
+      snr: 287
+    dips:
+    - handover: ch1->ch2
+      level: 0.0042
+      snr: 22
+    - handover: ch2->ch3
+      level: 0.0334
+      snr: 42
+  quantization:
+  - channel: ch0
+    from_level: 0.0
+    step_dn: 1
+  - channel: ch1
+    from_level: 0.0005
+    step_dn: 20
+  - channel: ch2
+    from_level: 0.004
+    step_dn: 153
+  - channel: ch3
+    from_level: 0.035
+    step_dn: 5723
+  colour:
+    light: DC LED floods (bench)
+    r_over_g: 0.55
+    b_over_g: 0.6
+    green_imbalance_pct: 0.63
+  repeatability_spread_pct:
+    dark: 0.95
+    flat: 1.5
+    colour: 0.1
+    channels: 1.6
+hdr_channels:
+- conversion_gain: high
+  full_well_e: null
+  gain_dn_per_e: null
+  name: ch0
+  note: needs ~15x less light than f/16
+  read_noise_dn: 2.49
+  sensitivity_vs_ch3: 5700
+  subpixel: large
+- conversion_gain: low
+  full_well_e: 15808
+  gain_dn_per_e: 0.246
+  name: ch1
+  read_noise_dn: 0.74
+  read_noise_e: 3.0
+  sensitivity_vs_ch3: 280
+  subpixel: large
+- conversion_gain: high
+  full_well_e: 5490
+  gain_dn_per_e: 0.709
+  name: ch2
+  read_noise_dn: 11.2
+  read_noise_e: 15.9
+  sensitivity_vs_ch3: 36
+  subpixel: small
+- conversion_gain: low
+  full_well_e: 150149
+  gain_dn_per_e: 0.0254
+  name: ch3
+  read_noise_dn: 2.62
+  read_noise_e: 103
+  sensitivity_vs_ch3: 1
+  subpixel: small
+limitations:
+- 'rolling shutter: moving subjects skew (about 44 ms top to bottom)'
+- 'light ripple faster than the exposure gives row bands: period_rows x 23.5 us =
+  ripple period; whole ripple periods of exposure cancel it'
+- non-linear by default (factory LUT gamma 0.5)
+- stream-locked controls are ignored, not refused, while streaming
+- HDR settings do not survive a power cycle via user sets
+- frame rate falls when exposure exceeds one frame period and halves with triggering
+- 8-bit output hides the noise floor
+diagnostics:
+- meaning: digital gain on (step = 10^(gain/20)); set gain_db 0
+  signature: finest shadow step > 1 DN in raw_hdr
+- meaning: BlackLevel 0 clips dark noise; set black.level >= 1
+  signature: many dark pixels exactly 0
+- meaning: factory LUT on
+  signature: doubling exposure gives x1.41
+- meaning: written while streaming
+  signature: setting reads back but image unchanged
+- meaning: 'normal: user sets do not store HDR'
+  signature: HDR off, factory channel values after power cycle
+- meaning: HDR tuning on
+  signature: ExposureTime / Gain read-only
+- meaning: exposure > one frame, or triggered
+  signature: frame rate lower than expected
+- meaning: flickering light (rolling shutter)
+  signature: moving horizontal bands
+- meaning: subject moved during exposure/readout
+  signature: slanted edges
+- meaning: fault or heat (DeviceTemperature)
+  signature: cap-on black or read noise far off
+- meaning: sensor ageing or damage
+  signature: hot pixels far above fingerprint
+- meaning: 'normal: 8-bit hides the noise floor'
+  signature: 8-bit output looks noise-free
+state_checks:
+  linear_output:
+    method: exposure E and 2E, 5-40 % of full scale
+    expect_ratio:
+    - 1.95
+    - 2.05
+    lut_on_ratio: 1.41
+  dark:
+    method: lens cap on, 10 ms, gain 0, black level 1
+    black_dn: 40
+    read_noise_dn: 2.4
+  settling:
+    expect_stale_frames: 0
+open_questions:
+- absolute light differed 3.6x between bench days at the same dimmer setting
+- 'channel 0 photon transfer: needs ~15x less light than f/16 (ND filter)'
+- temperature behaviour not measured

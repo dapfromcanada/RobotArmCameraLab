@@ -523,24 +523,28 @@ def create_server(
     @server.tool(structured_output=False)
     def get_camera_white_paper(camera_id: CameraId) -> Any:
         """The camera model's white paper (what it is, how it behaves, measured performance,
-        diagnostics) and its machine-readable sheet. Read it before setting up a camera."""
+        diagnostics), its machine-readable sheet, and a paper per lens tested on it (light,
+        vignetting and colour shading at every marked stop). Read it before setting up a
+        camera."""
 
         @guarded("get_camera_white_paper", "camera_id", log_call=True)
         def body(state: AppState, camera_id: str) -> dict[str, Any]:
-            from camera_lab.two_d.camera_models import load_model_sheet, models_dir
+            from camera_lab.two_d.camera_models import lens_papers, load_model_sheet, paper_paths
 
             serial = _ensure_open(state, camera_id)
             model = state.service._open[serial].camera.info.model
             sheet = load_model_sheet(model)
-            if sheet is None:
+            paths = paper_paths(model)
+            if sheet is None or paths is None:
                 return _ok(model=model, available=False, white_paper=None, sheet=None)
-            md = models_dir() / f"{sheet.model}.md"
-            text = md.read_text()[:200_000] if md.is_file() else None
+            text = paths[0].read_text()[:200_000] if paths[0].is_file() else None
+            lenses = {k: p.read_text()[:50_000] for k, p in lens_papers(model).items()}
             return _ok(
                 model=model,
                 available=True,
                 white_paper=text,
                 sheet=sheet.model_dump(mode="json"),
+                lens_papers=lenses,  # this camera model with each lens tested on it
             )
 
         return body(camera_id=camera_id)

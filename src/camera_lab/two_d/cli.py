@@ -28,11 +28,16 @@ preset_app = typer.Typer(help="Named presets (settings + light levels).", no_arg
 runs_app = typer.Typer(help="Browse recorded runs.", no_args_is_help=True)
 profile_app = typer.Typer(help="Camera profiles (characteristics, modes).", no_args_is_help=True)
 mode_app = typer.Typer(help="Enter a camera profile mode.", no_args_is_help=True)
+catalog_app = typer.Typer(
+    help="The camera and lens catalog (SQLite): models, cameras, lenses, runs, changes.",
+    no_args_is_help=True,
+)
 app.add_typer(settings_app, name="settings")
 app.add_typer(preset_app, name="preset")
 app.add_typer(runs_app, name="runs")
 app.add_typer(profile_app, name="profile")
 app.add_typer(mode_app, name="mode")
+app.add_typer(catalog_app, name="catalog")
 
 JsonOpt = Annotated[
     bool,
@@ -843,3 +848,137 @@ def fingerprint(ctx: typer.Context, camera: CameraArg) -> None:
             and typer.confirm("  Skip this setup (recorded in the report)?", default=False)
         ):
             show(ses.skip(step, typer.prompt("  Why", default="")))
+
+
+# ------------------------------------------------------------------ catalog
+@catalog_app.command("import")
+@handle_errors
+def catalog_import_cmd(json_out: JsonOpt = False) -> None:
+    """Load the bench file's lenses, the camera profiles and every fingerprint folder into the
+    catalog. Safe to repeat: rows are updated in place (each change logged).
+
+    Example: camera-lab two-d catalog import
+    """
+    from camera_lab.two_d.catalog import Catalog
+    from camera_lab.two_d.catalog.importer import import_all
+
+    with Catalog() as cat:
+        rep = import_all(cat)
+        path = cat.path
+    data = {**rep.__dict__, "notes": list(rep.notes), "catalog": str(path)}
+    emit(
+        data,
+        json_out,
+        lambda: (
+            f"{path}: {rep.camera_models} camera models, {rep.cameras} cameras, {rep.lenses} "
+            f"lenses, {rep.runs} runs, {rep.results} results, {rep.pair_stops} per-stop values"
+            + "".join(f"\n  note: {n}" for n in rep.notes)
+        ),
+    )
+
+
+@catalog_app.command("lenses")
+@handle_errors
+def catalog_lenses_cmd(
+    model: Annotated[
+        str | None, typer.Option(help="Camera model: lenses tested on it first.")
+    ] = None,
+    json_out: JsonOpt = False,
+) -> None:
+    """The lenses in the catalog with their marked stops and measured light per stop.
+
+    Example: camera-lab two-d catalog lenses --model AP-3200T-PGE
+    """
+    from camera_lab.two_d.catalog import Catalog
+
+    with Catalog() as cat:
+        lenses = cat.lenses_for_model(model) if model else cat.lenses()
+    data = [
+        {
+            "id": x.id,
+            "name": x.name,
+            "focal_mm": x.focal_mm,
+            "mount": x.mount,
+            "stops": [
+                {"f": s.f_number, "end_stop": s.end_stop, "transmission": s.transmission}
+                for s in x.stops
+            ],
+            "tested_on": list(x.tested_on),
+        }
+        for x in lenses
+    ]
+
+    def human() -> str:
+        lines = []
+        for x in lenses:
+            stops = "  ".join(
+                f"f/{s.f_number:g}"
+                + (f" ({s.end_stop})" if s.end_stop else "")
+                + (f"={s.transmission:.3g}" if s.transmission is not None else "")
+                for s in x.stops
+            )
+            tested = ", ".join(x.tested_on) or "no camera yet"
+            lines.append(
+                f"{x.id}: {x.name}, {x.focal_mm:g} mm {x.mount or ''} — tested on {tested}"
+            )
+            lines.append(f"    {stops}")
+        return "\n".join(lines) or "no lenses"
+
+    emit(data, json_out, human)
+
+
+@catalog_app.command("runs")
+@handle_errors
+def catalog_runs_cmd(
+    camera: Annotated[str | None, typer.Argument(help="Camera serial (all if omitted).")] = None,
+    json_out: JsonOpt = False,
+) -> None:
+    """Fingerprint runs and live checks in the catalog.
+
+    Example: camera-lab two-d catalog runs U330439
+    """
+    from camera_lab.two_d.catalog import Catalog
+
+    with Catalog() as cat:
+        runs = cat.runs(camera)
+
+    def human() -> str:
+        return (
+            "\n".join(
+                f"{r['id']}  {r['kind']}  lens {r['lens_id'] or '-'}"
+                + (f" f/{r['f_number']:g}" if r["f_number"] else "")
+                + ("" if r["valid"] else "  [history only]")
+                + (f"  — {r['note']}" if r["note"] else "")
+                for r in runs
+            )
+            or "no runs"
+        )
+
+    emit(runs, json_out, human)
+
+
+@catalog_app.command("changes")
+@handle_errors
+def catalog_changes_cmd(
+    limit: Annotated[int, typer.Option(min=1, max=10_000)] = 30, json_out: JsonOpt = False
+) -> None:
+    """The latest catalog changes: who, when, what, old → new.
+
+    Example: camera-lab two-d catalog changes --limit 50
+    """
+    from camera_lab.two_d.catalog import Catalog
+
+    with Catalog() as cat:
+        rows = cat.changes(limit)
+
+    def human() -> str:
+        return (
+            "\n".join(
+                f"{c['utc']}  {c['actor']:<11} {c['tbl']}/{c['row_key']}"
+                + (f".{c['col']}: {c['old']} → {c['new']}" if c["col"] else f": {c['new']}")
+                for c in rows
+            )
+            or "no changes"
+        )
+
+    emit(rows, json_out, human)

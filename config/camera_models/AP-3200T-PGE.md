@@ -1,4 +1,4 @@
-# JAI Apex AP-3200T-PGE — camera white paper (DRAFT v2, 2026-10-24: fingerprints 20261024T131257Z and 20261024T161546Z, 3 runs per measurement each, plus live checks)
+# JAI Apex AP-3200T-PGE — camera white paper (DRAFT v3, 2026-10-25: fingerprints 20261024T131257Z, 20261024T161546Z and 20261025T101320Z, 3 runs per measurement each, plus live checks)
 
 What this camera is, how it works, how it behaves and how well it performs, measured on the
 camera_lab bench. Machine-readable twin: `AP-3200T-PGE.yaml`.
@@ -17,10 +17,11 @@ blue each have their own full-resolution sensor (2064 × 1544, 3.45 µm), so the
 pattern and no debayering, and every pixel has a true R, G and B value. The global shutter
 exposes the whole frame at once, so moving parts are not skewed. Its strengths are colour
 accuracy, resolution per colour and very clean, linear data: **0.11 % linearity error, 0.69 %
-PRNU, 1.7 DN (≈ 1.9 e⁻) read noise**, the same in two fingerprints hours apart. Its limits are a
-small full well at the default gain mode (**≈ 4 460 e⁻ → peak SNR ≈ 65, dynamic range 67 dB /
-11.2 stops**; the other gain mode doubles it, § 4), the GigE link (**8 fps in 12-bit**) and heat:
-it runs at **57–64 °C** inside and its black level drifts while it warms up (§ 8). It is not an HDR
+PRNU, 1.7 DN (≈ 1.9 e⁻) read noise**, the same in three fingerprints over two days (system gain
+and full well within 0.4 %). Its limits are a small full well at the default gain mode
+(**≈ 4 470 e⁻ → peak SNR ≈ 65, dynamic range 67 dB / 11.2 stops**; individual gain mode doubles
+it to ≈ 9 600 e⁻, § 4), the GigE link (**8 fps in 12-bit**) and heat: it runs at **≈ 60 °C**
+inside and its black level drifts while it warms up (§ 8). It is not an HDR
 camera: scenes with very bright and very dark parts need the light or the exposure chosen for the
 part that matters. [manual], [fingerprint 2026-10-24]
 
@@ -45,9 +46,10 @@ looking at the picture.
 **80 % of full scale**, never clipped (≤ 0.2 % of pixels). SNR rises steadily with signal (§ 6),
 so brighter is always cleaner up to the clip.
 
-**Warm-up:** the camera warms from ≈ 57 to 64 °C over the first quarter hour of streaming and its
-black level drifts by ≈ 4 DN meanwhile. Measure after it has streamed for 15 minutes, and compare
-dark readings only at similar `DeviceTemperature`.
+**Warm-up:** the camera warms to ≈ 60 °C over the first quarter hour of streaming and its black
+level drifts by ≈ 4 DN meanwhile. Warm (59.8–61.2 °C through a whole fingerprint, 2026-10-25) the
+black holds within 1 % and there is no measurable dark current. Let it stream 15 minutes before
+measuring, and compare dark readings only at similar `DeviceTemperature`.
 
 **Exposure budget:** one frame at the frame rate the job needs. In `raw` the camera delivers at
 most **8.0 fps** (GigE) → ≈ 125 ms per frame; 8-bit 12.0 fps ≈ 83 ms. Too dark within the budget
@@ -88,10 +90,10 @@ never clipped: no BlackLevel change is needed. [fingerprint 2026-10-24]
 |---|---|
 | exposure | 14.7 µs to 8 s (performance verified to 1 s) plus a fixed sensor offset; one common exposure in `raw`, per sensor with `ExposureTimeMode = Individual` | [manual] |
 | gain (master mode) | **analog**: × 7.8 DN/e⁻ at 18 dB (18 dB = × 7.9). Read noise in electrons falls only from 2.0 to 1.6 e⁻ while the full well falls from 4 530 to 582 e⁻: **gain costs headroom and buys almost nothing — keep 0 dB, add light** (table below) | [fingerprint 2026-10-24 16:15] |
-| gain mode | `IndividualGainMode` On ("individual") at 0 dB gives **exactly half the signal** of master 0 dB (manual: master 0 dB ≈ individual + 6 dB) and clips at twice the exposure: **full well ≈ 9 000 e⁻, peak SNR ≈ 95, read noise ≈ 4 e⁻** — the same 67 dB range shifted one stop up. `Gain` is not writable in that mode (per-sensor gains instead). Useful for bright scenes that need the best SNR; master 0 dB is better for dim ones | [live 2026-10-24]; full well estimated, [to confirm by the next fingerprint] |
+| gain mode | `IndividualGainMode` On ("individual") at 0 dB gives **half the signal** of master 0 dB (0.47–0.50×; manual: master 0 dB ≈ individual + 6 dB) and clips at twice the exposure: **full well 9 626 e⁻, peak SNR ≈ 98, read noise 4.4 e⁻** — the same 67 dB range shifted one stop up. `Gain` is not writable in that mode (per-sensor gains instead). **Bright scenes that need the best SNR: individual 0 dB; dim scenes: master 0 dB** (half the read noise in electrons). camera_lab's `raw` mode uses master | [fingerprint 2026-10-25], [live 2026-10-24] |
 | white balance | per-sensor analog gain (`AnalogRed` / `AnalogBlue`); keep 1.0 in `raw` and balance colour on the PC | [manual] |
 | black level | default 0 is right for `raw` (black 100 DN, nothing clipped) | [fingerprint 2026-10-24] |
-| user sets | Default + UserSet1/2/3; `UserSetSave` needs the stream stopped; no boot-set selector | [measured 2026-10-21] |
+| user sets | Default + UserSet1/2/3; `UserSetSave` needs the stream stopped; no boot-set selector; a user set keeps exposure, gain, pixel format and white balance across `DeviceReset` (≈ 20 s) | [fingerprints 2026-10-24/25] |
 | frame rate | free run up to the interface limit (§ 5); `AcquisitionFrameRate` lower it | [manual] |
 
 ### Setting names (camera_lab key ↔ GenICam node)
@@ -115,7 +117,8 @@ apply the **complete** `raw` settings, read every one back, then verify on the i
 free run, full frame. **Design mode `raw`** on top: RGB12V1Packed, gain 0 dB (master mode), white
 balance 1/1/1, common exposure.
 
-**What a user set stores:** not yet tested (needs a human power cycle). [to measure]
+**What a user set stores:** exposure, gain, pixel format and white balance survive a `DeviceReset`
+from User Set 1 (two fingerprints); whether a real power cycle does the same is not yet checked.
 
 ## 5. Timing
 | | value | source |
@@ -135,22 +138,22 @@ Full scale = 4095 DN. "Runs" = how many measurement runs the value rests on.
 
 | property | value | fraction of full scale | runs / units | source |
 |---|---|---|---|---|
-| black level | **96–101 DN**, drifting ≈ 4 DN while the camera warms (57 → 64 °C) | 2.4 % | 6 / 1 (spread 4.4 % warming, 1.0 % warm) | [fingerprints 2026-10-24] |
-| read noise (dark, temporal) | **1.68–1.74 DN ≈ 1.9 e⁻** at 1 ms (1.8–1.9 at 10 ms, 2.4–2.9 at 100 ms) | 0.04 % | 6 / 1 (spread ≤ 0.43 %) | [fingerprints 2026-10-24] |
+| black level | **100 DN** warm (≈ 60 °C, spread 1.0 %); 96–101 DN while warming | 2.4 % | 9 / 1 | [fingerprints 2026-10-24/25] |
+| read noise (dark, temporal) | **1.68–1.74 DN ≈ 1.9–2.0 e⁻** at 1 ms (1.8–1.9 at 10 ms, 2.4–2.9 at 100 ms) | 0.04 % | 9 / 1 (spread ≤ 0.54 %) | [fingerprints 2026-10-24/25] |
 | row noise (temporal, dark) | 0.29 DN rms | | 1 / 1 | [fingerprint 2026-10-24] |
 | DSNU | 3.6 DN at 1–10 ms, 7.4 DN at 100 ms | | 1 / 1 | [fingerprint 2026-10-24] |
-| system gain | **0.893 / 0.897 DN/e⁻** (two runs) | | 6 / 1 (spread ≤ 0.19 %) | [fingerprints 2026-10-24] |
-| full well | **4 470 / 4 458 e⁻** (the 12-bit ADC clips first at master 0 dB) | | 6 / 1 | [fingerprints 2026-10-24] |
+| system gain | **0.893 / 0.897 / 0.894 DN/e⁻** (three fingerprints) | | 9 / 1 (spread ≤ 0.26 %) | [fingerprints 2026-10-24/25] |
+| full well | **4 470 / 4 458 / 4 470 e⁻** (the 12-bit ADC clips first at master 0 dB) | | 9 / 1 | [fingerprints 2026-10-24/25] |
 | **dynamic range** (range ÷ read noise) | **67 dB (11.2 stops)** | | 3 / 1 | [fingerprint 2026-10-24] |
 | saturation | 4094 DN | 100 % | | [fingerprint 2026-10-24] |
-| dark current | **temperature-dependent**: 0 DN/s in the morning run, 40 DN/s at 57–64 °C (4 DN in 100 ms) | | 6 / 1 | [fingerprints 2026-10-24] |
-| linearity error | **0.11 / 0.19 %** of range | | 6 / 1 | [fingerprints 2026-10-24] |
-| peak SNR (flat, 90 % of full scale) | **64.8** (shot-noise limit √4470 = 67) | | 3 / 1 | [fingerprint 2026-10-24] |
+| dark current | **0 DN/s** when warm and steady (two runs). The 40 DN/s of 2026-10-24 16:15 was the black drifting while the camera warmed (57 → 64 °C), not dark current | | 9 / 1 | [fingerprints 2026-10-24/25] |
+| linearity error | **0.11 / 0.19 / 0.21 %** of range | | 9 / 1 | [fingerprints 2026-10-24/25] |
+| peak SNR (flat, 90 % of full scale) | **64–65** (shot-noise limit √4470 = 67) | | 6 / 1 | [fingerprints 2026-10-24/25] |
 | pixel response non-uniformity | **0.6–0.7 %**, equal in R, G and B | | 6 / 1 (spread ≤ 1.1 %) | [fingerprints 2026-10-24] |
-| vignetting | lens-, iris- and light-dependent: 0.93 (morning) and 1.05 (afternoon, the bench light falling unevenly on the diffuser after the bench moved) | | | [fingerprints 2026-10-24] |
-| colour under the bench floods (white LED) | R/G 1.03, B/G 0.82 (morning) vs 0.84 / 0.92 (afternoon, bench moved): **a property of the light at the place, not the camera** — balance colour on site | | 3 / 1 each (spread ≤ 1.1 %) | [fingerprints 2026-10-24] |
-| hot pixels | unit-specific: **3 504 / 3 648** on U330439 (8 σ, 100 ms), most mild: 120 above 200 DN, 16 above 400 DN | | 2 / 1 | [fingerprints 2026-10-24] |
-| internal temperature | 57 → 64 °C over a 15-minute run (`DeviceTemperature`) | | | [fingerprint 2026-10-24 16:15] |
+| vignetting | lens-, iris- and light-dependent (§ 7): JAI 6 mm 0628-C3 corners 0.82 at f/2.8, 0.93 at f/4; the moved bench lights the diffuser's corners ≈ 5 % brighter (1.05 at f/5.6), so the lens alone is ≈ 0.78 at f/2.8 | | 3 / 1 each | [fingerprints 2026-10-24/25] |
+| colour under the bench floods | R/G 1.03 / 0.84 / 1.27 and B/G 0.82 / 0.92 / 0.72 in three runs (each repeatable within 1 %): **a property of the light at the time and place, not the camera** — balance colour on site, under the production light | | 3 / 1 each | [fingerprints 2026-10-24/25] |
+| hot pixels | unit-specific: **3 160–3 648** on U330439 (8 σ, 100 ms; fewer when warm and steady), most mild: 120 above 200 DN, 16 above 400 DN | | 3 / 1 | [fingerprints 2026-10-24/25] |
+| internal temperature | ≈ 60 °C streaming (57 → 64 °C while warming) | | | [fingerprints 2026-10-24/25] |
 | quantization | 1 DN everywhere (the read noise, 1.74 DN, is above one step) | | | [fingerprint 2026-10-24] |
 
 ### SNR vs signal level [fingerprint 2026-10-24]
@@ -180,22 +183,36 @@ Full scale = 4095 DN. "Runs" = how many measurement runs the value rests on.
 | 12 | 3.45 | 1.7 | 1 158 | 16.9 |
 | 18 | 6.87 | 1.6 | 582 | 12.0 |
 
+Repeated 2026-10-25 within 0.4 % (up to 15 dB: at 18 dB the exposure fell below the 1 ms
+minimum).
+
 ## 7. Colour: the prism
-Corner colour shading is negligible from f/4 to f/8 (colour cast at the corners 0.3–0.4 %;
-the colours shade alike). Not yet measured with the iris wider than f/4. [fingerprint 2026-10-24 16:15]
+**Corner shading vs iris** (JAI 6 mm 0628-C3, diffuser, floods) [fingerprints 2026-10-24/25]:
+
+| iris | corners / centre (R / G / B) | colour cast at the corners |
+|---|---|---|
+| f/2.8 (fully open) | 0.816 / 0.819 / 0.827 | **1.4 %** (blue corners slightly brighter) |
+| f/4–f/5.6 | 1.05 (bench light uneven) | 0.3–0.6 % |
+| f/8 | 1.04 | 0.3 % |
+
+Opening wider than the prism's F4 rating adds vignetting (≈ 0.78 lens-only at f/2.8) and a
+small colour shading (1.4 %): fine for detection, and a flat-field correction per colour plane
+removes it for measurement. From f/4 down the colours shade alike.
 
 Each colour has its own sensor and its own gain path, so the three planes are independent full-
 resolution images: no demosaicing artefacts, no colour aliasing, and the noise is the same in
 each plane (PRNU R 0.68 / G 0.69 / B 0.68 %). Colour is balanced on the PC (`raw` keeps the
 camera's white balance at 1.0). The planes are only as well registered as the prism and lens
 allow: a lens made for prism cameras (the JAI 0628-C3 is) keeps the colours aligned. The prism
-is rated "F4 prism optical system" [manual]; what that means for lenses faster than f/4 (colour
-shading toward the corners) is open (§ 11). Prism alignment is assumed good (factory).
+is rated "F4 prism optical system" [manual]; at f/2.8 that costs 1.4 % of colour shading at the
+corners (above). Prism alignment is assumed good (factory).
 
 ## 8. Limitations and known behaviours
 - **Small full well:** 4 470 e⁻ at master 0 dB caps the SNR at ≈ 65 and the dynamic range at
-  11 stops; individual gain mode at 0 dB doubles the full well (§ 4). It is not an HDR camera.
-- **Runs hot, drifts while warming:** 57 → 64 °C, black −4 DN, dark current from 0 to 40 DN/s.
+  11 stops; individual gain mode at 0 dB doubles the full well to 9 626 e⁻ (§ 4). It is not an
+  HDR camera.
+- **Runs hot, drifts while warming:** ≈ 60 °C streaming; the black drifts ≈ 4 DN while it warms.
+- **Iris wider than f/4:** more vignetting and 1.4 % colour shading at f/2.8 (§ 7).
 - **GigE limits the frame rate:** 8 fps in 12-bit, 12 fps in 8-bit; the sensors could do 24 fps.
 - **Only RGB12V1Packed is raw:** the 8/10-bit formats carry the camera's gamma 0.45 and white balance.
 - **No boot-set selector:** once any user set is saved the camera boots from User Set 1.
@@ -219,25 +236,23 @@ shading toward the corners) is open (§ 11). Prism alignment is assumed good (fa
 | test | method | expected |
 |---|---|---|
 | linear output | steady scene, exposure E and 2E (5–40 % of full scale) | signal × 1.95–2.05 |
-| dark | lens cap on, 10 ms, gain 0, BlackLevel 0, camera warm (≈ 60 °C) | black 96–101 DN, read noise ≈ 1.8 DN |
+| dark | lens cap on, 10 ms, gain 0, BlackLevel 0, camera warm (≈ 60 °C) | black ≈ 100 DN, read noise ≈ 1.8 DN |
 | start-up | `two-d reset` / `reset_camera` | all `raw` settings read back equal |
 | hot pixels | lens cap on, 100 ms | close to the unit's fingerprint count |
 
 ## 11. Open questions
-- **Individual gain mode full well:** ≈ 9 000 e⁻ estimated live; the next fingerprint measures it
-  (its first try was hit by the long-exposure bug, fixed).
-- **F4 prism vs an f/2.8 lens:** the next fingerprint measures at fully open (f/2.8) and f/5.6.
 - **Software reboot vs power cycle:** after `DeviceReset` the JAI kept exposure, gain, pixel
   format and white balance from User Set 1 (fingerprint 2026-10-24 16:15); whether a real power
   cycle does the same is not yet checked (on the TRI054S they are identical).
 - **Linearity on the image** with `two-d verify` (the fingerprint's 0.11 % says yes).
-- Temperature behaviour: not measured.
+- Temperature beyond the bench's ≈ 60 °C steady state (a hot enclosure on site): not measured.
+- Why the bench light's colour changed between runs (other lights on? daylight?).
 
 ## 12. Test conditions and sources
 - Bench: white board lit by the DC LED floods (full), opal acrylic diffuser on the lens, JAI 6 mm
   f/2.8 JVS-C118-0628-C3 (prism lens) at about f/4 (morning) and between f/4 and f/5.6
-  (afternoon, after the bench moved), lens cap for darks. From now on: fully open (f/2.8, an end
-  stop) with the 1 ms global-shutter minimum. Unit U330439, firmware 0.0.3.4 (device version 0.1.0.7).
+  (afternoon, after the bench moved), fully open f/2.8 with the 1 ms global-shutter minimum and
+  f/5.6 for the lens row (2026-10-25, camera warm), lens cap for darks. Unit U330439, firmware 0.0.3.4 (device version 0.1.0.7).
 - Camera profile: `config/camera_profiles/U330439.yaml`
 - Fingerprints: `WS/config/camera_fingerprints/U330439/`
 - JAI AP-1600T/3200T-PGE user manual v2.2: `Manuals/vision/jai_apex/`

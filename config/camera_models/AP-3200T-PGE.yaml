@@ -1,4 +1,4 @@
-# Camera white paper, machine-readable twin of AP-3200T-PGE.md. DRAFT v2, 2026-10-24 (fingerprints 20261024T131257Z, 20261024T161546Z; live checks).
+# Camera white paper, machine-readable twin of AP-3200T-PGE.md. DRAFT v3, 2026-10-25 (fingerprints 20261024T131257Z, 20261024T161546Z, 20261025T101320Z; live checks).
 # null = to be measured by the next fingerprint run.
 schema_version: 1
 model: AP-3200T-PGE
@@ -23,7 +23,7 @@ startup:                              # never trust the boot state
   boot_user_set: {feature: false, lab: Default (nothing saved), site: UserSet1 after a confirmed setup}   # boots from UserSet1 once one is saved
   user_set_stores: [exposure_us, gain_db, pixel_format, white_balance]   # DeviceReset test 2026-10-24
   software_reboot: {node: DeviceReset, equivalent_to_power_cycle: null}   # not yet checked by a power cycle
-  warm_up: {from_c: 57, to_c: 64, minutes: 15, black_drift_dn: -4}
+  warm_up: {steady_c: 60, minutes: 15, black_drift_dn: -4}
   user_set_save_needs_stream_stopped: true
 sensor:
   name: 3 x global-shutter CMOS behind a prism (sensor not named in the manual)
@@ -44,7 +44,7 @@ controls:
   exposure_us_min: 14.73              # manual, 8/10-bit; plus a sensor offset
   exposure_us_max: 8000000            # manual (performance verified to 1 s)
   gain: {kind: analog, master_range_db: [0, 18], individual_range_db: [0, 36.13], master_zero_is_individual_plus_db: 6}
-  gain_mode_individual_0db: {signal_vs_master: 0.50, full_well_e_estimate: 9000, read_noise_e_estimate: 4.0, gain_writable: false}   # live 2026-10-24
+  gain_mode_individual_0db: {signal_vs_master: 0.48, full_well_e: 9626, read_noise_e: 4.4, peak_snr: 98, gain_writable: false}   # fingerprint 2026-10-25
   exposure_frame_margin_us: {RGB12V1Packed: 1107, RGB8: 737}
   white_balance: "per-sensor analog gain (AnalogRed/AnalogBlue -6.5..12 dB): keep 1.0 in raw"
   per_sensor_exposure: "ExposureTimeMode Individual"
@@ -75,7 +75,7 @@ performance:                          # RGB12V1Packed, master gain 0 dB, BlackLe
   saturation_dn: 4094
   runs: 3
   units: 1
-  black_dn: 98                        # 96-101 while warming (57 -> 64 C)
+  black_dn: 100                       # warm (~60 C); 96-101 while warming
   read_noise_dn: 1.71
   read_noise_e: 1.9
   row_noise_dn: 0.29
@@ -84,11 +84,12 @@ performance:                          # RGB12V1Packed, master gain 0 dB, BlackLe
   full_well_e: 4470                   # ADC-limited at master 0 dB (= +6 dB over individual 0 dB)
   dynamic_range_db: 67.2
   dynamic_range_stops: 11.2
-  dark_current_dn_s: {cool: 0, warm_60c: 40}
+  dark_current_dn_s: 0                # warm and steady; 40 DN/s once was warm-up drift
   linearity_error_pct: 0.11
   peak_snr: 64.8                      # shot-noise limited: sqrt(4470 e-) = 67
   prnu_pct: 0.69
-  vignetting_corner_ratio: 0.93       # JAI 6 mm 0628-C3, about f/4; lens- and iris-dependent
+  vignetting_corner_ratio: {f2.8: 0.82, f4: 0.93}   # JAI 6 mm 0628-C3; lens-, iris- and light-dependent
+  corner_colour_cast_pct: {f2.8: 1.4, f5.6: 0.6, f8: 0.3}
   noise_model: {formula: "sigma^2 = read^2 + signal_dn * 0.893", a_dn2: 3.03, b_dn: 0.893}
   snr_vs_signal:                      # level fraction of full scale -> SNR (2026-10-24)
     monotonic: true
@@ -96,7 +97,7 @@ performance:                          # RGB12V1Packed, master gain 0 dB, BlackLe
     best: {level: 0.904, snr: 64.8}
   quantization:
     - {from_level: 0.0, step_dn: 1}
-  colour: {light: "DC LED floods (bench); depends on the place", r_over_g: [1.03, 0.84], b_over_g: [0.82, 0.92], prnu_pct: {R: 0.64, G: 0.65, B: 0.66}}
+  colour: {light: "DC LED floods (bench); depends on the place", r_over_g: [1.03, 0.84, 1.27], b_over_g: [0.82, 0.92, 0.72], prnu_pct: {R: 0.64, G: 0.65, B: 0.66}}
   hot_pixels_8sigma_100ms: [3504, 3648]   # unit U330439; most mild (120 above 200 DN, 16 above 400 DN)
   gain_table: {0: {dn_per_e: 0.883, read_noise_e: 2.0, full_well_e: 4530}, 6: {dn_per_e: 1.74, read_noise_e: 1.8, full_well_e: 2298}, 12: {dn_per_e: 3.45, read_noise_e: 1.7, full_well_e: 1158}, 18: {dn_per_e: 6.87, read_noise_e: 1.6, full_well_e: 582}}
   repeatability_spread_pct: {dark: 1.0, flat: 0.3, colour: 0.4}
@@ -114,11 +115,9 @@ diagnostics:
   - {signature: "red / blue fringes at edges", meaning: "prism or lens misalignment, or a lens not made for prism cameras"}
 state_checks:
   linear_output: {method: "exposure E and 2E, 5-40 % of full scale", expect_ratio: [1.95, 2.05]}
-  dark: {method: "lens cap on, 10 ms, gain 0, BlackLevel 0, camera warm (~60 C)", black_dn: [96, 101], read_noise_dn: 1.8}
+  dark: {method: "lens cap on, 10 ms, gain 0, BlackLevel 0, camera warm (~60 C)", black_dn: 100, read_noise_dn: 1.8}
   settling: {expect_stale_frames: 0}
 open_questions:
-  - "individual gain mode full well (~9000 e- estimated live): next fingerprint"
-  - "colour shading at f/2.8 (wider than the prism's F4 rating): next fingerprint at fully open"
   - "DeviceReset vs a real power cycle"
   - "exposure x2 linearity check on the image (two-d verify)"
   - "temperature behaviour"

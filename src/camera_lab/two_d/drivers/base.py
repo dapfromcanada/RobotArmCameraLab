@@ -49,6 +49,10 @@ IDENTITY_NODES = (
 class Camera2D(ABC):
     """An open 2D camera."""
 
+    #: Settings (camera_lab keys) the driver sets itself whenever it opens the camera
+    #: (``configure_on_open``): a user set's value for them is never seen after a restart.
+    OPEN_SETS: ClassVar[tuple[str, ...]] = ()
+
     @property
     @abstractmethod
     def info(self) -> CameraInfo:

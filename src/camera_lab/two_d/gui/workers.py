@@ -326,6 +326,7 @@ class CameraWorker(QObject):
             "setup_save": self._job_setup_save,
             "fingerprint_create": self._job_fingerprint_create,
             "fingerprint_step": self._job_fingerprint_step,
+            "fingerprint_close": self._job_fingerprint_close,
             "fingerprint_select_lens": self._job_fingerprint_select_lens,
             "fingerprint_set_iris": self._job_fingerprint_set_iris,
             "catalog_add_lens": self._job_catalog_add_lens,
@@ -590,7 +591,17 @@ class CameraWorker(QObject):
             raise InvalidRequestError("no fingerprint session: open the fingerprint window first")
         return self._fingerprint
 
+    def _job_fingerprint_close(self) -> None:
+        """The window closed: a fingerprint stopped between its user-set rows must not leave
+        test values in the camera's boot user set."""
+        session, self._fingerprint = self._fingerprint, None
+        if session is not None:
+            done = session.restore_if_pending()
+            if done:
+                _log.info("fingerprint_user_sets_restored", camera_id=session.camera_id, how=done)
+
     def _job_fingerprint_create(self) -> FingerprintOutcome:
+        self._job_fingerprint_close()  # an earlier session left half-way
         self._fingerprint = FingerprintSession(
             self.service, self._require_camera(), **self.fingerprint_options
         )

@@ -122,6 +122,10 @@ def test_fingerprint_recovers_the_sensor(svc: TwoDService, tmp_path: Path) -> No
     cam.iris_transmission = 1.0  # type: ignore[attr-defined]
     assert ses.step_light_back().ok
     assert ses.step_user_sets().ok
+    cam.power_cut()  # type: ignore[attr-defined]  # the human unplugs the camera
+    assert ses.step_power_cycle().ok
+    assert ses.step_site_path().ok
+    assert ses.step_restore_user_sets().ok
     rep = ses.step_report()
     assert rep.ok and "camera restored" in rep.message
     folder = Path(rep.data["folder"])
@@ -382,7 +386,8 @@ def test_hdr_recipe_stages_verify_the_light(
             "9. Iris f/8",
             "10. Iris f/11",
             "11. Iris fully closed (f/16): low light",
-            "12. Iris back: finish",
+            "12. Iris back: user sets",
+            "13. Power cycle: finish",
         ]
         assert ses.plan["lens_2"].checks == ("Iris at f/2.8", "Diffuser still on the lens")
         assert ses.plan["low_light"].checks[0] == "Iris at f/16 (fully closed)"
@@ -546,6 +551,7 @@ def test_setups_run_each_bench_state_once(svc: TwoDService, tmp_path: Path) -> N
         "light_2",
         "low_light",
         "finish",
+        "power",
     ]
     assert ses.plan["cap"].label == "1. Lens cap on"
     assert ses.plan["cap"].measures == ("identity", "dark")
@@ -589,18 +595,22 @@ def test_setups_run_each_bench_state_once(svc: TwoDService, tmp_path: Path) -> N
         ses.select_lens("jai_6mm_0628")
     run_lens_rows(ses, cam)
     cam.iris_transmission = 1.0  # type: ignore[attr-defined]
-    fin = ses.run("finish", ses.plan["finish"].checks)
+    us = ses.run("finish", ses.plan["finish"].checks)
+    assert us.status == "pass", us.message
+    svc._open[SIM].camera.power_cut()  # type: ignore[attr-defined]  # the human unplugs it
+    fin = ses.run("power", ses.plan["power"].checks)
     assert fin.status == "pass", fin.message
     assert ses.next_step() is None
     doc = yaml.safe_load((Path(fin.data["report"]["folder"]) / "fingerprint.yaml").read_text())
     md = (Path(fin.data["report"]["folder"]) / "report.md").read_text()
     assert "| cap | identity" in md and "**all**" in md and "Image pipeline (" in md
-    assert "| finish | light_back" in md and "user_sets" in md.split("| finish |")[1]
+    assert "| finish | light_back" in md and "| power | power_cycle" in md
+    assert "| exposure_us |" in md and "| kept | kept |" in md  # every setting, both restarts
     assert "Camera temperature:** cap 41.5 °C" in md
     assert "**lens_iris_2** (pass): Kowa 8 mm, f/2.8: light 0.35" in md
     assert "| f/2.8 | 0.35" in md and "Low light (iris fully closed" in md
     assert "Darks (cap on) at every exposure" in md and "Noise vs gain at a constant output" in md
-    assert doc["setups"]["finish"]["status"] == "pass"  # the row that wrote the report
+    assert doc["setups"]["power"]["status"] == "pass"  # the row that wrote the report
     assert doc["lens_iris_2"]["lens"] == "Kowa 8 mm, f/2.8"
     assert doc["identity"]["lens"] == "Kowa 8 mm, f/1.4"
     assert doc["setups"]["cap"]["status"] == "pass"
@@ -671,24 +681,71 @@ def test_lit_measurements_respect_the_bench_minimum(svc: TwoDService, tmp_path: 
     assert ses._lit_range()[0] >= 1000.0
 
 
-def test_user_sets_without_a_boot_set_feature(svc: TwoDService, tmp_path: Path) -> None:
-    """Like the JAI: no UserSetDefault, it boots from User Set 1 once that is saved. The test
-    uses User Set 1, then refills it with factory Default (boots as from Default)."""
+@pytest.mark.parametrize("boot_feature", [True, False])
+def test_every_setting_survives_reboot_and_power_cut(
+    svc: TwoDService, tmp_path: Path, boot_feature: bool
+) -> None:
+    """Derek 2026-10-25: every setting, not a sample; the real power cut is proven (a live,
+    unsaved change must be gone); the site setup's save must bring the design mode back; the
+    camera is left booting as from factory Default. Without a boot-set feature (the JAI)
+    User Set 1 is used and refilled with factory Default."""
     cam = svc._open[SIM].camera
-    cam._nvram["boot_set_feature"] = False  # type: ignore[attr-defined]
+    cam._nvram["boot_set_feature"] = boot_feature  # type: ignore[attr-defined]
     ses = FingerprintSession(svc, SIM, root=tmp_path / "fp", reset=False)
-    assert ses.plan["finish"].checks[-1] == (
-        "OK to write test values to UserSet1 and restart the camera; UserSet1 is then refilled "
-        "with factory Default"
-    )
+    ses.select_lens("kowa_8mm")
+    slot = "UserSet2" if boot_feature else "UserSet1"
+    assert ses.plan["finish"].checks[-1].startswith(f"OK to write test values to {slot}")
+    assert ses.plan["power"].measures == ("power_cycle", "site_path", "restore_user_sets", "report")
     assert ses.step_identity().ok
-    res = ses.step_user_sets()
-    assert res.ok, res.message
-    assert "from UserSet1: kept exposure_us, gain_db" in res.message
-    assert "UserSet1 refilled with factory Default" in res.message
+    us = ses.step_user_sets()
+    assert us.ok, us.message
+    tested = us.data["settings"]
+    for key in (
+        "exposure_us",
+        "gain_db",
+        "roi_width",
+        "roi_x",
+        "wb_red",
+        "gamma",
+        "frame_rate_hz",
+        "hdr.ch0.exposure_us",
+        "prism.exposure_mode",
+        "hdr.enabled",
+    ):
+        assert key in tested, key  # every setting the sim has, not 4 samples
+    assert len(tested) >= 15
+    assert tested["hdr.enabled"]["after_reboot"] is False  # not stored (like the TRI054S)
+    assert all(v["after_reboot"] for k, v in tested.items() if k != "hdr.enabled")
+    not_cut = ses.step_power_cycle()  # the human did not unplug it
+    assert not_cut.status == "fail" and "not power-cycled" in not_cut.message
+    svc._open[SIM].camera.power_cut()  # type: ignore[attr-defined]
+    cut = ses.step_power_cycle()
+    assert cut.ok and cut.data["identical_to_reboot"], cut.message
+    site = ses.step_site_path()
+    assert site.ok and "came back in the design mode" in site.message, site.message
+    back = ses.step_restore_user_sets()
+    assert back.ok and "boots as from factory Default" in back.message, back.message
     nv = svc._open[SIM].camera._nvram  # type: ignore[attr-defined]
-    assert nv["boot_set"] == "UserSet1"
-    assert nv["user_sets"]["UserSet1"].exposure_us == svc._open[SIM].camera._factory.exposure_us  # type: ignore[attr-defined]
+    assert nv["boot_set"] == ("Default" if boot_feature else "UserSet1")
+    if not boot_feature:
+        assert nv["user_sets"]["UserSet1"].exposure_us == svc._open[SIM].camera._factory.exposure_us  # type: ignore[attr-defined]
+    assert ses.restore_if_pending() is None  # nothing left to put back
+
+
+def test_power_row_skip_still_restores_and_reports(svc: TwoDService, tmp_path: Path) -> None:
+    ses = FingerprintSession(svc, SIM, root=tmp_path / "fp", reset=False)
+    ses.select_lens("kowa_8mm")
+    for m in ("identity", "dark", "flat"):  # the report needs the camera rows
+        ses.results[m] = FpResult(step=m, status="pass", message="", data={})
+    assert ses.step_identity().ok
+    assert ses.step_user_sets().ok
+    for m in ses._planned():
+        ses.results.setdefault(m, FpResult(step=m, status="skipped", message=""))
+    ses.results.pop("report", None)
+    ses.results.pop("restore_user_sets", None)
+    res = ses.skip("power", "the camera's cable is built in")
+    assert res.status == "skipped" and "user sets back" in res.message
+    assert ses.results["restore_user_sets"].ok and ses.results["report"].ok
 
 
 def test_other_gain_mode_is_measured_on_prism_cameras(

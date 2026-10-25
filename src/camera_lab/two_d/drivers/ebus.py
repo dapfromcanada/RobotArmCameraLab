@@ -206,6 +206,15 @@ class _EbusAccess(FeatureAccess):
 class EbusCamera(Camera2D):
     """An open JAI camera."""
 
+    #: configure_on_open: trigger off, free-run frame rate, common exposure and master
+    #: gain mode
+    OPEN_SETS: ClassVar[tuple[str, ...]] = (
+        "trigger_mode",
+        "frame_rate_hz",
+        "prism.exposure_mode",
+        "prism.gain_mode",
+    )
+
     def __init__(
         self,
         sdk: Any,

@@ -192,13 +192,33 @@ class PlanMixin(SessionBase):
         back = ref_light
         plan["finish"] = StepPlan(
             "finish",
-            "Iris back: finish",
+            "Iris back: user sets",
             "Set the iris and the light back as in the diffuser row; keep the diffuser on. "
-            "camera_lab checks the light matches the flat step, tests what survives a restart "
-            f"(test values in {persist}, the camera reboots, ≈ 30 s) and writes the fingerprint. "
-            "Remove the diffuser afterwards.",
+            "camera_lab checks the light matches the flat step, then gives every setting a "
+            f"test value, saves them in {persist} and reboots the camera (≈ 30 s): what did it "
+            "keep? Do not unplug anything yet.",
             (*back, "Diffuser still on the lens", persist_check),
-            ("light_back", "user_sets", "report"),
+            ("light_back", "user_sets"),
+            f_number=ref.f_number if picked else None,
+        )
+        plan["power"] = StepPlan(
+            "power",
+            "Power cycle: finish",
+            "Unplug the camera's power (the PoE cable), wait at least 10 s, plug it back in and "
+            "wait until its link light is on (≈ 30 s; the live view stops meanwhile). Then Run: "
+            "camera_lab reconnects and checks what survived a real power cut, saves the design "
+            "mode exactly as the setup tool does on site and restarts the camera (it must come "
+            "back in the design mode), puts every user set back, checks the camera boots as from "
+            "factory Default, and writes the fingerprint. Remove the diffuser afterwards. Skip "
+            "(with a reason) only if the camera cannot be unplugged: the user sets are still "
+            "put back.",
+            (
+                "Camera unplugged (power / PoE) for at least 10 s",
+                "Plugged back in, the camera's link light is on",
+                "OK to save the design mode to UserSet1 as on site and restart the camera",
+            ),
+            ("power_cycle", "site_path", "restore_user_sets", "report"),
+            can_skip=True,
             f_number=ref.f_number if picked else None,
         )
         n = 0

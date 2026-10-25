@@ -250,6 +250,36 @@ class ReportMixin(SessionBase):
             return f" ; catalog NOT updated ({type(exc).__name__}: {exc}): run `catalog import`"
         return f" ; catalog: {n} results, {pairs} per-stop values"
 
+    def _user_set_lines(self) -> list[str]:
+        """Every setting: its test value, kept after the software reboot and after a real
+        power cut; what was not tested and why; the site path and the restore."""
+        us = self.results.get("user_sets")
+        if us is None or "settings" not in us.data:
+            return []
+        power = self.results.get("power_cycle")
+        after_power = set(power.data.get("kept", [])) if power and power.status == "pass" else None
+        out = [
+            "",
+            f"User set {us.data.get('slot')}: every setting with a test value "
+            "(kept = the value came back after the restart):",
+            "",
+            "| setting | test value | software reboot | power cut |",
+            "|---|---|---|---|",
+        ]
+        for key, row in us.data["settings"].items():
+            pw = "-" if after_power is None else ("kept" if key in after_power else "LOST")
+            out.append(
+                f"| {key} | {row['test_value']} | "
+                f"{'kept' if row['after_reboot'] else 'LOST'} | {pw} |"
+            )
+        for key, why in (us.data.get("not_tested") or {}).items():
+            out.append(f"| {key} | - | not tested: {why} | |")
+        for step in ("power_cycle", "site_path", "restore_user_sets"):
+            r = self.results.get(step)
+            if r is not None:
+                out.append(f"\n{step.replace('_', ' ').capitalize()} ({r.status}): {r.message}")
+        return out
+
     def step_report(self) -> FpResult:
         self._require(*(m for m in self._planned() if m != "report"))
         folder = self._folder()
@@ -374,6 +404,7 @@ class ReportMixin(SessionBase):
         lines += self._dark_lines()
         lines += self._lens_lines(ident)
         lines += self._low_light_lines()
+        lines += self._user_set_lines()
         (folder / "report.md").write_text("\n".join(lines) + "\n")
         catalog_note = self._to_catalog(folder)
         restored = ""

@@ -536,6 +536,19 @@ class TwoDService:
         )
         return {**out, "backup_before": backup.backup_id}
 
+    def load_user_set(self, camera_id: str, slot: str = "Default") -> dict[str, Any]:
+        """Load a user set into the live settings (``Default`` = factory). Live only: nothing
+        is written to the camera's memory; camera_lab's open-time setup runs again."""
+        serial, oc = self._require_open(camera_id)
+        try:
+            out = oc.camera.load_user_set(slot)
+        except NotImplementedError:
+            raise ConfigurationError(f"camera {serial}: its driver cannot load user sets") from None
+        except ValueError as exc:
+            raise InvalidRequestError(str(exc)) from None
+        oc.mode = None
+        return out
+
     def refill_user_set_with_default(
         self, camera_id: str, slot: str, *, confirm: bool, actor: Actor = "human"
     ) -> dict[str, Any]:
@@ -581,23 +594,7 @@ class TwoDService:
             oc.camera.reboot()
         except NotImplementedError:
             raise ConfigurationError(f"camera {serial}: its driver cannot reboot it") from None
-        dropped = self._open.pop(serial)
-        self._active_runs.pop(serial, None)
-        with contextlib.suppress(Exception):
-            dropped.camera.close()
-        dropped.lock.release()
-        self._sleep(REBOOT_SETTLE_S)
-        last: Exception | None = None
-        for _ in range(attempts):
-            try:
-                self._known.pop(serial, None)
-                self.open(serial, owner)
-                break
-            except (CameraNotFoundError, DeviceError, CameraDisconnectedError) as exc:
-                last = exc
-                self._sleep(wait_s)
-        else:
-            raise DeviceError(f"camera {serial} did not come back after the reboot: {last}")
+        self._reopen(serial, owner, attempts=attempts, wait_s=wait_s, what="the reboot")
         after = self._open[serial].camera.uptime_s()
         restarted = None if after is None else (before is None or after < before)
         _log.info("camera_rebooted", camera_id=serial, uptime_before=before, uptime_after=after)
@@ -609,6 +606,37 @@ class TwoDService:
             "verified_by": "uptime" if after is not None else "reconnect only",
             "backup_before": backup.backup_id,
         }
+
+    def _reopen(self, serial: str, owner: str, *, attempts: int, wait_s: float, what: str) -> None:
+        """Drop the handle of a camera that restarted and open it again when it is back."""
+        dropped = self._open.pop(serial)
+        self._active_runs.pop(serial, None)
+        with contextlib.suppress(Exception):
+            dropped.camera.close()
+        dropped.lock.release()
+        self._sleep(REBOOT_SETTLE_S)
+        last: Exception | None = None
+        for _ in range(attempts):
+            try:
+                self._known.pop(serial, None)
+                self.open(serial, owner)
+                return
+            except (CameraNotFoundError, DeviceError, CameraDisconnectedError) as exc:
+                last = exc
+                self._sleep(wait_s)
+        raise DeviceError(f"camera {serial} did not come back after {what}: {last}")
+
+    def reconnect_camera(
+        self, camera_id: str, *, attempts: int = 30, wait_s: float = 3.0
+    ) -> dict[str, Any]:
+        """After a human power-cycled the camera (unplugged and plugged back): release the
+        dead handle and open the camera again. Writes nothing to the camera."""
+        serial, oc = self._require_open(camera_id)
+        owner = oc.lock.owner
+        self._reopen(serial, owner, attempts=attempts, wait_s=wait_s, what="the power cycle")
+        up = self._open[serial].camera.uptime_s()
+        _log.info("camera_reconnected", camera_id=serial, uptime_s=up)
+        return {"camera_id": serial, "uptime_after_s": up}
 
     def set_boot_user_set(
         self, camera_id: str, slot: str = "Default", *, confirm: bool, actor: Actor = "human"

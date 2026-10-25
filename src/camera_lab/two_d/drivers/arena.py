@@ -183,6 +183,9 @@ def _channels(fmt: str) -> int:
 class ArenaCamera(Camera2D):
     """An open Lucid camera."""
 
+    #: configure_on_open: trigger off, free-run frame rate
+    OPEN_SETS: ClassVar[tuple[str, ...]] = ("trigger_mode", "frame_rate_hz")
+
     def __init__(
         self,
         system: Any,

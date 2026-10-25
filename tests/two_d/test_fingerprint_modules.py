@@ -93,11 +93,12 @@ def _rows(ses: FingerprintSession) -> list[str]:
 
 def test_modules_follow_the_sensor_type(ses: FingerprintSession) -> None:
     _replan(ses, "mono", hdr=False)  # e.g. the TRI089S-M: core only
-    assert _rows(ses) == ["cap", "diffuser", "low_light", "finish"]  # no lens picked yet
+    assert _rows(ses) == ["cap", "diffuser", "low_light", "finish", "power"]  # no lens yet
     assert ses.plan["diffuser"].measures == ("timing", "flat", "noise_gain")
     assert "colour" not in ses.plan["diffuser"].instruction
     assert ses.plan["low_light"].label == "3. Low light" and ses.plan["low_light"].can_skip
-    assert ses.plan["finish"].label == "4. Iris back: finish"
+    assert ses.plan["finish"].label == "4. Iris back: user sets"
+    assert ses.plan["power"].label == "5. Power cycle: finish"
     assert ses.plan["finish"].checks == (  # no lens picked yet: the end stop by name
         "Iris fully open",
         "Bench light on dimmer 10",
@@ -108,14 +109,18 @@ def test_modules_follow_the_sensor_type(ses: FingerprintSession) -> None:
     assert ses.plan["finish"].checks[0] == "Iris at f/1.4 (fully open)"
 
     _replan(ses, "prism", hdr=False)  # e.g. the JAI: core + colour
-    assert _rows(ses)[:2] == ["cap", "diffuser"] and _rows(ses)[-2:] == ["low_light", "finish"]
+    assert _rows(ses)[:2] == ["cap", "diffuser"] and _rows(ses)[-3:] == [
+        "low_light",
+        "finish",
+        "power",
+    ]
     assert ses.plan["diffuser"].measures == ("timing", "flat", "colour", "noise_gain")
     assert "the colour planes" in ses.plan["diffuser"].instruction
 
     _replan(ses, "bayer", hdr=True)  # e.g. the TRI054S without a recipe: core + colour + HDR
     assert _rows(ses)[:3] == ["cap", "diffuser", "light_2"]
     assert ses.plan["light_2"].measures == ("channels_a",)
-    assert ses.plan["finish"].label.endswith(". Iris back: finish")
+    assert ses.plan["power"].label.endswith(". Power cycle: finish")
 
 
 def test_bayer_camera_measures_its_colour_planes(
@@ -168,11 +173,14 @@ def test_row_variance_separates_banding_from_pixel_noise() -> None:
 
 def test_persistence_test_finds_what_a_reboot_keeps(ses: FingerprintSession) -> None:
     """The simulated camera stores everything in a user set except HDR tuning (like the
-    TRI054S-C); the test leaves the boot set as it found it."""
+    TRI054S-C). The boot set stays on the test slot until the power row (or a closed window)
+    puts it back."""
     ses.step_identity()
     res = ses.step_user_sets()
     per = res.data["persistence"]
     assert "hdr.enabled" in per["lost"]
-    assert {"exposure_us", "gain_db", "white_balance.red"} <= set(per["kept"])
+    assert {"exposure_us", "gain_db", "wb_red"} <= set(per["kept"])
     assert res.data["restart"]["restart_verified"] is True
-    assert ses.service.user_set_info(SIM)["boot_set"] == "Default"  # put back
+    assert ses.service.user_set_info(SIM)["boot_set"] == "UserSet2"  # the power row is next
+    assert ses.restore_if_pending() == "boot set back to Default"  # the window closed
+    assert ses.service.user_set_info(SIM)["boot_set"] == "Default"

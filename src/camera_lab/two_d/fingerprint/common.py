@@ -40,6 +40,9 @@ FpStep = Literal[
     "lens_iris_8",
     "low_light",
     "user_sets",
+    "power_cycle",
+    "site_path",
+    "restore_user_sets",
     "report",
 ]
 STAGE_STEPS: tuple[FpStep, ...] = ("channels_a", "channels_b", "channels_c", "channels_d")
@@ -61,6 +64,7 @@ FpSetup = Literal[
     "lens_8",
     "low_light",
     "finish",
+    "power",
 ]
 LIGHT_SETUPS: tuple[FpSetup, ...] = ("light_2", "light_3", "light_4")
 #: One row per marked stop between the lens's end stops (Derek 2026-10-25: every stop).
@@ -93,6 +97,7 @@ FP_SETUPS: tuple[FpSetup, ...] = (
     *LENS_SETUPS,
     "low_light",
     "finish",
+    "power",
 )
 MEASURE_LABELS: dict[FpStep, str] = {
     "identity": "identity",
@@ -108,6 +113,9 @@ MEASURE_LABELS: dict[FpStep, str] = {
     "noise_gain": "noise vs gain",
     **dict.fromkeys(LENS_STEPS, "lens / iris"),
     "low_light": "low light",
+    "power_cycle": "power cycle",
+    "site_path": "site path",
+    "restore_user_sets": "user sets back",
     "user_sets": "user sets",
     "report": "report",
 }
@@ -160,6 +168,9 @@ FP_STEPS: tuple[FpStep, ...] = (
     *LENS_STEPS,
     "low_light",
     "user_sets",
+    "power_cycle",
+    "site_path",
+    "restore_user_sets",
     "report",
 )
 

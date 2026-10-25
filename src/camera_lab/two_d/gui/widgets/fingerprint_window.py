@@ -483,8 +483,10 @@ class FingerprintWindow(QDialog):
         can_run = idle and self._next_step is not None and self._failed_step is None
         self.run_step_button.setEnabled(can_run and ticked)
         self.retry_button.setEnabled(idle and self._failed_step is not None and ticked)
-        failed = self._plan.get(self._failed_step) if self._failed_step is not None else None
-        self.skip_button.setEnabled(idle and failed is not None and failed.can_skip)
+        # a skippable row can be skipped when it is due (the power row: a camera that cannot
+        # be unplugged) or after a STOP; the reason is recorded in the report
+        due_plan = self._plan.get(due) if due is not None else None
+        self.skip_button.setEnabled(idle and due_plan is not None and due_plan.can_skip)
 
     def _submit(self, job: str, /, **kwargs: Any) -> None:
         self.job_requested.emit(job, kwargs)
@@ -562,7 +564,7 @@ class FingerprintWindow(QDialog):
         self._failed_step = None
         state = STATE_SKIPPED if result.status == "skipped" else STATE_OK
         self._set_row(step, state, result.message)
-        if result.step == "finish" and result.status == "pass":
+        if "report" in result.data and result.status in ("pass", "skipped"):  # the last row
             self._show_message(f"{ALL_DONE_TEXT} {result.message}", LEVEL_OK)
             self._show_report(result)
         else:
@@ -655,8 +657,8 @@ class FingerprintWindow(QDialog):
 
     # ------------------------------------------------------------- slots
     def skip_failed(self, reason: str) -> None:
-        """Skip the failed setup (only where the plan allows it), with a reason."""
-        step = self._failed_step
+        """Skip the due setup (failed or next; only where the plan allows it), with a reason."""
+        step = self._failed_step or self._next_step
         if step is None or not self._plan[step].can_skip:
             return
         self._busy = True
@@ -756,8 +758,10 @@ class FingerprintWindow(QDialog):
 
     # ------------------------------------------------------------ closing
     def done(self, result: int) -> None:
-        """Stop reacting to the worker; the camera and live view stay as they are."""
+        """Stop reacting to the worker; the camera and live view stay as they are. A
+        fingerprint left between its user-set rows puts the user sets back (worker job)."""
         if not self._closed:
+            self._submit("fingerprint_close")
             self._closed = True
             for signal, slot in (
                 (self._worker.frame_ready, self._on_worker_frame_ready),

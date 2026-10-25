@@ -117,6 +117,7 @@ from camera_lab.two_d.fingerprint.lens import LensMeasurements
 from camera_lab.two_d.fingerprint.lowlight import LowLightMeasurements
 from camera_lab.two_d.fingerprint.plan import PlanMixin
 from camera_lab.two_d.fingerprint.report import ReportMixin
+from camera_lab.two_d.fingerprint.usersets import UserSetMeasurements
 
 __all__ = [
     "BLACK_RAISE",
@@ -166,6 +167,7 @@ __all__ = [
 class FingerprintSession(
     PlanMixin,
     LowLightMeasurements,
+    UserSetMeasurements,
     CoreMeasurements,
     ColourMeasurements,
     HdrMeasurements,
@@ -325,6 +327,9 @@ class FingerprintSession(
             "noise_gain": self.step_noise_gain,
             "low_light": self.step_low_light,
             "user_sets": self.step_user_sets,
+            "power_cycle": self.step_power_cycle,
+            "site_path": self.step_site_path,
+            "restore_user_sets": self.step_restore_user_sets,
             "report": self.step_report,
         }
         return methods[m]()
@@ -420,11 +425,23 @@ class FingerprintSession(
             raise InvalidRequestError(f"{plan.label} cannot be skipped")
         why = " ".join(reason.split())[:LENS_MAX_CHARS] or "no reason given"
         msg = f"skipped by the operator ({why})"
+        # what must still happen (the power row: the user sets back, the report)
+        always = ("restore_user_sets", "report")
         for m in plan.measures:
+            if m in always:
+                continue
             if m not in self.results or not self.results[m].ok:
                 self._record(FpResult(step=m, status="skipped", message=msg))
+        parts = [self._measure(m) for m in plan.measures if m in always]
+        tail = "; ".join(f"{MEASURE_LABELS[p.step]}: {p.message}" for p in parts)  # type: ignore[index]
+        data: dict[str, Any] = {"operator_skip": why, **{p.step: p.data for p in parts}}
         return self._record_setup(
-            FpResult(step=setup, status="skipped", message=msg, data={"operator_skip": why})
+            FpResult(
+                step=setup,
+                status="skipped",
+                message=msg + (f"; {tail}" if tail else ""),
+                data=data,
+            )
         )
 
     def next_step(self) -> FpSetup | None:

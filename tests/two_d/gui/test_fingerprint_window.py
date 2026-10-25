@@ -96,14 +96,14 @@ def test_action_needs_an_open_camera(qtbot: QtBot, fp_service: TwoDService) -> N
 
 #: Before a lens is picked (sim: HDR-capable, no recipe → discovery; the lens's stops are not
 #: known yet, so no stop rows)
-ROWS = ["cap", "diffuser", "light_2", "low_light", "finish"]
+ROWS = ["cap", "diffuser", "light_2", "low_light", "finish", "power"]
 
 
 def test_window_opens_with_live_frames(qtbot: QtBot, main: MainWindow) -> None:
     dlg = open_fp(qtbot, main)
     qtbot.waitUntil(dlg.live_view.has_image, timeout=WAIT_MS)
-    assert len(FP_SETUPS) == 15
-    assert dlg.step_row_count() == 5  # unused setups get no row
+    assert len(FP_SETUPS) == 16
+    assert dlg.step_row_count() == 6  # unused setups get no row
     assert dlg.row_states() == dict.fromkeys(ROWS, "pending")
     assert not dlg.retry_button.isEnabled()
     assert not dlg.skip_button.isEnabled()
@@ -199,6 +199,8 @@ def test_full_run_reaches_the_report_without_a_ui_stall(
         run_step(qtbot, dlg, setup)
     cam.iris_transmission = 1.0  # type: ignore[attr-defined]
     run_step(qtbot, dlg, "finish")
+    fp_service._open[SIM].camera.power_cut()  # type: ignore[attr-defined]  # unplugged
+    run_step(qtbot, dlg, "power")
     qtbot.waitUntil(lambda: dlg.next_step is None, timeout=WAIT_MS)
     texts = "\n".join(dlg.result_texts())
     for key in ("System gain", "Read noise", "Full well", "Dark current", "Hot pixels", "PRNU"):
@@ -228,8 +230,8 @@ def test_step_rows_populate_and_clear_without_leftovers(qtbot: QtBot, main: Main
         dlg._populate_step_list()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     rows = [w for w in dlg.steps_container.findChildren(QFrame) if w.objectName() == "setupRow"]
-    assert len(rows) == 5
-    assert dlg.step_row_count() == 5
+    assert len(rows) == 6
+    assert dlg.step_row_count() == 6
     dlg._clear_step_list()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     assert dlg.step_row_count() == 0

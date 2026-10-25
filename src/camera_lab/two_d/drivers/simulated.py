@@ -202,7 +202,12 @@ class SimulatedCamera(Camera2D):
         )
         self._factory = self._settings  # what "Default" loads
         boot = self._nvram["user_sets"].get(self._nvram["boot_set"])
-        if boot is not None:  # boots from its boot user set; HDR tuning is not stored
+        self._powered_at = self._nvram["power_on"]  # a restart after this kills the handle
+        live = self._nvram.get("live")
+        if live is not None and live[0] == self._nvram["power_on"]:
+            # opened again without a restart (like a real camera): the live settings remain
+            self._settings = live[1]
+        elif boot is not None:  # boots from its boot user set; HDR tuning is not stored
             self._settings = boot.model_copy(
                 update={"advanced": {**boot.advanced, "hdr.enabled": "off"}}
             )
@@ -664,6 +669,10 @@ class SimulatedCamera(Camera2D):
             "notes": ["simulated: every setting except hdr.enabled is stored"],
         }
 
+    def power_cut(self) -> None:
+        """The human unplugs and plugs the camera back (tests): like a reboot, without asking."""
+        self.reboot()
+
     def reboot(self) -> None:
         """Restart: a new power-on time; the next open boots from the boot user set."""
         self._nvram["power_on"] = time.monotonic()
@@ -697,7 +706,9 @@ class SimulatedCamera(Camera2D):
         return {"slot": slot, "notes": []}
 
     def close(self) -> None:
-        """Stop and close."""
+        """Stop and close (the camera stays powered: its live settings remain)."""
+        if not self._closed and self._powered_at == self._nvram["power_on"]:
+            self._nvram["live"] = (self._nvram["power_on"], self._settings)
         self._streaming = False
         self._closed = True
 

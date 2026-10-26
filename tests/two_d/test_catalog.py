@@ -64,7 +64,7 @@ def test_lens_stops_are_picked_from_the_standard_list(cat: Catalog) -> None:
 
 def test_dots_are_kept_but_not_offered_as_stops(cat: Catalog) -> None:
     lid = cat.add_lens(
-        "Kowa 8 mm",
+        "Kowa LM8HC",
         lens_id="kowa_8mm",
         focal_mm=8,
         mount="C",

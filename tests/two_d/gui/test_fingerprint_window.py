@@ -57,7 +57,7 @@ def open_fp(qtbot: QtBot, main: MainWindow) -> FingerprintWindow:
     return dlg
 
 
-def pick_lens(qtbot: QtBot, dlg: FingerprintWindow, name: str = "Kowa 8 mm") -> None:
+def pick_lens(qtbot: QtBot, dlg: FingerprintWindow, name: str = "Kowa LM8HC") -> None:
     """The human picks the lens on the camera from the list (never typed)."""
     index = next(i for i, text in enumerate(dlg.lens_items()) if text.startswith(name))
     dlg._on_lens_combo_activated(index)
@@ -119,7 +119,7 @@ def test_run_needs_every_checklist_item(qtbot: QtBot, main: MainWindow) -> None:
     assert not dlg.run_step_button.isEnabled()  # no lens picked
     pick_lens(qtbot, dlg)
     assert "Iris at f/1.4 (fully open)" in dlg.checklist()  # the checklist names the stop
-    assert "Kowa 8 mm, f/1.4" in dlg.lens_text_label.text()
+    assert "Kowa LM8HC, f/1.4" in dlg.lens_text_label.text()
     assert not dlg.run_step_button.isEnabled()  # a new checklist after the pick
     boxes = dlg._check_boxes
     for box in boxes[:-1]:
@@ -211,7 +211,7 @@ def test_full_run_reaches_the_report_without_a_ui_stall(
     folder = dlg.folder_label.text()
     assert str(tmp_path / "fp") in folder
     doc = yaml.safe_load((Path(folder.removeprefix("Folder: ")) / "fingerprint.yaml").read_text())
-    assert doc["identity"]["lens"] == "Kowa 8 mm, f/1.4"
+    assert doc["identity"]["lens"] == "Kowa LM8HC, f/1.4"
     assert "complete" in dlg.message_text().lower()
     dlg.copy_button.click()
     from PySide6.QtGui import QGuiApplication

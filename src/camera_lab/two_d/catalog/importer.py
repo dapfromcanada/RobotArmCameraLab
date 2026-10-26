@@ -43,6 +43,9 @@ LENS_FACTS: dict[str, dict[str, Any]] = {
     },
 }
 
+#: Names older runs recorded for a lens that has since been named by its model.
+LENS_ALIASES: dict[str, str] = {"kowa 8 mm": "kowa_8mm"}  # the Kowa LM8HC (2026-10-26)
+
 #: Runs that need a word of history (lens not stated, iris not on a mark, superseded).
 RUN_FACTS: dict[str, dict[str, Any]] = {
     "233100505/20261021T202300Z": {
@@ -504,7 +507,15 @@ def import_run(
     lens_text = ident.get("lens") or None
     if lens_id is None:
         found = cat.find_lens(lens_text) if lens_text else None
-        lens_id = facts.get("lens_id", found.id if found else None)
+        alias = next(
+            (
+                lid
+                for name, lid in LENS_ALIASES.items()
+                if (lens_text or "").lower().startswith(name)
+            ),
+            None,
+        )
+        lens_id = facts.get("lens_id", found.id if found else alias)
     f_ref = facts["f_number"] if "f_number" in facts else f_number_of(lens_text)
     temps = [float(v) for v in (doc.get("temperatures_c") or {}).values()]
     results = results_from_fingerprint(doc, f_ref)

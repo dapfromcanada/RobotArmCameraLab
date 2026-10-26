@@ -260,7 +260,7 @@ def test_hdr_channels_discovery_says_how_much_light(
         assert "needs more than 10× less light" in first.message
         assert "Change the light as asked" in first.message
         assert set(first.data["channels"]) == {"HDRChannel1", "HDRChannel2", "HDRChannel3"}
-        assert first.data["channels"]["HDRChannel3"]["lens"] == "Kowa 8 mm, f/1.4"
+        assert first.data["channels"]["HDRChannel3"]["lens"] == "Kowa LM8HC, f/1.4"
         settings = svc.get_settings(TRI054S).settings
         assert (settings.advanced["hdr.output"], settings.pixel_format) == ("HDR", "BayerRG24")
 
@@ -277,8 +277,8 @@ def test_hdr_channels_discovery_says_how_much_light(
         ses.set_iris(8.0)
         third = ses.step_stage(0)
         assert third.status == "pass", third.message
-        assert third.data["channels"]["HDRChannel0"]["lens"] == "Kowa 8 mm, f/8"
-        assert third.data["channels"]["HDRChannel1"]["lens"] == "Kowa 8 mm, f/1.4"
+        assert third.data["channels"]["HDRChannel0"]["lens"] == "Kowa LM8HC, f/8"
+        assert third.data["channels"]["HDRChannel1"]["lens"] == "Kowa LM8HC, f/1.4"
         for out, ch in third.data["channels"].items():
             ptc = ch["photon_transfer"]
             assert ptc["system_gain_dn_per_e"] == pytest.approx(k_dn_e[out], rel=0.1), out
@@ -292,7 +292,7 @@ def test_iris_hint() -> None:
     from camera_lab.two_d.fingerprint.session import iris_hint
 
     assert (
-        iris_hint(8.0, "Kowa 8 mm, f/1.4") == " ≈ 3.0 f-stops: close the iris (f/1.4 → about f/4)"
+        iris_hint(8.0, "Kowa LM8HC, f/1.4") == " ≈ 3.0 f-stops: close the iris (f/1.4 → about f/4)"
     )
     assert iris_hint(0.5, "F/4") == " ≈ 1.0 f-stops: open the iris (f/4 → about f/2.8)"
     assert iris_hint(4.0, "") == " ≈ 2.0 f-stops: close the iris"
@@ -370,7 +370,7 @@ def test_hdr_recipe_stages_verify_the_light(
     try:
         svc.open(TRI054S, "test")
         ses = FingerprintSession(svc, TRI054S, root=tmp_roots / "fp")
-        assert ses.recipe is not None and ses.lens == "Kowa 8 mm, f/1.4"
+        assert ses.recipe is not None and ses.lens == "Kowa LM8HC, f/1.4"
         assert ses.min_exposure_us == 2000.0  # from the bench file
         ses.min_exposure_us = 0.0  # stage logic under test, not the bench's exposure floor
         labels = [p.label for p in ses.plan.values() if p.active]
@@ -411,7 +411,7 @@ def test_hdr_recipe_stages_verify_the_light(
         assert "Iris at f/1.4 (fully open)" in ses.plan["cap"].checks
         with pytest.raises(InvalidRequestError, match="not in the catalog"):
             ses.select_lens("nope")  # lenses are picked from the catalog, never typed
-        assert ses.lens == "Kowa 8 mm, f/1.4"
+        assert ses.lens == "Kowa LM8HC, f/1.4"
         assert ses.step_identity().ok
 
         bench = load_bench()
@@ -468,7 +468,7 @@ def test_hdr_recipe_stages_verify_the_light(
         b = ses.run("light_2", ses.plan["light_2"].checks)
         assert b.status == "pass", b.message
         ch2 = b.data["channels_b"]["channels"]["HDRChannel2"]
-        assert ch2["lens"] == "Kowa 8 mm, f/8"
+        assert ch2["lens"] == "Kowa LM8HC, f/8"
         assert len(ch2["repeats"]["system_gain_dn_per_e"]["values"]) == 3
         assert "3 runs agree within" in b.message
 
@@ -482,7 +482,7 @@ def test_hdr_recipe_stages_verify_the_light(
         state["f"] = 1.4
         back = ses.step_light_back()
         assert back.status == "pass", back.message
-        assert ses.lens == "Kowa 8 mm, f/1.4"
+        assert ses.lens == "Kowa LM8HC, f/1.4"
     finally:
         svc.shutdown()
 
@@ -565,7 +565,7 @@ def test_setups_run_each_bench_state_once(svc: TwoDService, tmp_path: Path) -> N
         ses.run("cap", ses.plan["cap"].checks)
     assert {lid for lid, _, _ in ses.lens_choices} == {"jai_6mm_0628", "kowa_8mm"}
     ses.select_lens("kowa_8mm")  # the bench file's list: the temp workspace catalog is empty
-    assert ses.lens == "Kowa 8 mm, f/1.4" and "Iris at f/1.4 (fully open)" in ses.plan["cap"].checks
+    assert ses.lens == "Kowa LM8HC, f/1.4" and "Iris at f/1.4 (fully open)" in ses.plan["cap"].checks
 
     stop = ses.run("cap", ses.plan["cap"].checks)  # the chart is in view: no cap
     assert stop.status == "fail" and stop.message.startswith("darks: light reaches the sensor")
@@ -607,12 +607,12 @@ def test_setups_run_each_bench_state_once(svc: TwoDService, tmp_path: Path) -> N
     assert "| finish | light_back" in md and "| power | power_cycle" in md
     assert "| exposure_us |" in md and "| kept | kept |" in md  # every setting, both restarts
     assert "Camera temperature:** cap 41.5 °C" in md
-    assert "**lens_iris_2** (pass): Kowa 8 mm, f/2.8: light 0.35" in md
+    assert "**lens_iris_2** (pass): Kowa LM8HC, f/2.8: light 0.35" in md
     assert "| f/2.8 | 0.35" in md and "Low light (iris fully closed" in md
     assert "Darks (cap on) at every exposure" in md and "Noise vs gain at a constant output" in md
     assert doc["setups"]["power"]["status"] == "pass"  # the row that wrote the report
-    assert doc["lens_iris_2"]["lens"] == "Kowa 8 mm, f/2.8"
-    assert doc["identity"]["lens"] == "Kowa 8 mm, f/1.4"
+    assert doc["lens_iris_2"]["lens"] == "Kowa LM8HC, f/2.8"
+    assert doc["identity"]["lens"] == "Kowa LM8HC, f/1.4"
     assert doc["setups"]["cap"]["status"] == "pass"
     assert doc["dark"]["repeats"]["read_noise_dn"]["median"] > 0
     assert "catalog:" in fin.message  # the run went into the catalog (the source of truth)

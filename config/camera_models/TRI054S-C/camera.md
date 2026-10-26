@@ -1,4 +1,4 @@
-# Lucid Triton TRI054S-C — camera white paper (generated 2026-10-25 13:22 UTC from the camera catalog; runs: 233100505/20261024T084539Z)
+# Lucid Triton TRI054S-C — camera white paper (generated 2026-10-26 13:56 UTC from the camera catalog; runs: 233100505/20261024T084539Z)
 
 What this camera is, how it works, how it behaves and how well it performs, measured on the
 camera_lab bench. Machine-readable twin: `TRI054S-C.yaml`.

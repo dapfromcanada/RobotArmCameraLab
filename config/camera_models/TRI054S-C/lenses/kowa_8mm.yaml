@@ -2,7 +2,7 @@
 schema_version: 1
 model: TRI054S-C
 lens: kowa_8mm
-lens_name: Kowa 8 mm
+lens_name: Kowa LM8HC
 stops:
 - f_number: 1.4
   end_stop: open

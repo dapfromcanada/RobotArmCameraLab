@@ -28,6 +28,7 @@ from camera_lab.core.logging import get_logger
 from camera_lab.core.paths import safe_join, two_d_runs_root
 from camera_lab.core.presets import PresetRef
 from camera_lab.core.records import CaptureSidecar, RunSummary
+from camera_lab.core.safety import NotAdjustable
 from camera_lab.two_d.errors import CameraBusyError, InvalidRequestError, TwoDError
 from camera_lab.two_d.fingerprint.session import (
     FingerprintSession,
@@ -35,6 +36,7 @@ from camera_lab.two_d.fingerprint.session import (
     FpSetup,
     StepPlan,
 )
+from camera_lab.two_d.focus import FocusMeter, FocusReading, next_exposure
 from camera_lab.two_d.gui.constants import (
     ACTOR,
     FPS_WINDOW_FRAMES,
@@ -46,7 +48,13 @@ from camera_lab.two_d.gui.constants import (
     PREVIEW_LONG_EDGE_PX,
     TUNE_MAX_STEPS,
 )
-from camera_lab.two_d.models import ApplyResult, CameraInfo, Frame, ProcessorResult
+from camera_lab.two_d.models import (
+    ApplyResult,
+    CameraInfo,
+    CameraSettingsPatch,
+    Frame,
+    ProcessorResult,
+)
 from camera_lab.two_d.processing import (
     PROCESSORS,
     REC709,
@@ -72,6 +80,9 @@ CHANNELS_RGBA = 4
 CHANNELS_RGB = 3
 HISTOGRAM_RANGE = (0.0, 1.0)
 LIVE_MIN_INTERVAL_S = 1.0 / MAX_LIVE_FPS
+#: The focus tool keeps exposures short: long ones blur if the bench moves, and the JAI's
+#: darks go bad above ≈ 100 ms (2026-10-25).
+FOCUS_MAX_EXPOSURE_US = 100_000.0
 MS_PER_S = 1000.0
 MIN_FPS_SAMPLES = 2
 CAPTURE_JSON_GLOB = "[0-9][0-9][0-9][0-9].json"
@@ -181,6 +192,14 @@ class FingerprintOutcome:
     lens_locked: bool = False  # fixed once a row has run
     iris_stops: tuple[float, ...] = ()  # the picked lens's marked stops (discovery rows)
     iris_f: float | None = None
+
+
+@dataclass(frozen=True)
+class FocusToolOutcome:
+    """Result of a ``focus_*`` job: the reading (None after a reset) and the exposure."""
+
+    reading: FocusReading | None
+    exposure_us: float
 
 
 @dataclass(frozen=True)
@@ -326,6 +345,8 @@ class CameraWorker(QObject):
             "setup_save": self._job_setup_save,
             "fingerprint_create": self._job_fingerprint_create,
             "fingerprint_step": self._job_fingerprint_step,
+            "focus_reading": self._job_focus_reading,
+            "focus_reset": self._job_focus_reset,
             "fingerprint_close": self._job_fingerprint_close,
             "fingerprint_select_lens": self._job_fingerprint_select_lens,
             "fingerprint_set_iris": self._job_fingerprint_set_iris,
@@ -335,6 +356,7 @@ class CameraWorker(QObject):
         self._fingerprint: FingerprintSession | None = None
         #: Keyword arguments for new :class:`FingerprintSession` objects (tests: ``root``).
         self.fingerprint_options: dict[str, Any] = {}
+        self._focus: FocusMeter | None = None
         #: Keyword arguments for new :class:`SetupSession` objects (tests: ``sleep``, ``root``).
         self.setup_options: dict[str, Any] = {}
         self._last_stream_emit = 0.0
@@ -584,6 +606,37 @@ class CameraWorker(QObject):
         with self._streaming_grabs():
             result = session.save(confirm, preset_name, on_site=on_site)
         return SetupOutcome(result, session.next_step(), session.focus_best)
+
+    # -------------------------------------------------------------- focus
+    def _job_focus_reset(self) -> FocusToolOutcome:
+        """Start a focusing session (or start the best value again)."""
+        self._focus = FocusMeter()
+        return FocusToolOutcome(None, float(self._view().settings.exposure_us))
+
+    def _job_focus_reading(self, auto_exposure: bool = True) -> FocusToolOutcome:
+        """One sharpness reading on the resolution chart; the exposure follows the light."""
+        camera = self._require_camera()
+        if self._focus is None:
+            self._focus = FocusMeter()
+        view = self._view()
+        rng = view.ranges.get("exposure_us")
+        lo, hi = (
+            (float(rng.min.value), min(float(rng.max.value), FOCUS_MAX_EXPOSURE_US))
+            if rng is not None and not isinstance(rng, NotAdjustable)
+            else (1.0, FOCUS_MAX_EXPOSURE_US)
+        )
+        exposure = float(view.settings.exposure_us)
+        with self._streaming_grabs():
+            frame = self.service.grab(camera, LIVE_GRAB_TIMEOUT_MS)
+        reading = self._focus.read(frame, exposure, at_limit=exposure >= hi * 0.99)
+        if auto_exposure:
+            new = next_exposure(reading, lo, hi)
+            if new is not None and abs(new - exposure) > 0.02 * exposure:
+                self.service.apply(
+                    camera, CameraSettingsPatch(exposure_us=new), ACTOR, mode="clamp"
+                )
+                exposure = float(self._view().settings.exposure_us)
+        return FocusToolOutcome(reading, exposure)
 
     # -------------------------------------------------------- fingerprint
     def _require_fingerprint(self) -> FingerprintSession:

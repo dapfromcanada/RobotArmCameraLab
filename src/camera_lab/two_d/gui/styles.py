@@ -186,6 +186,8 @@ QLabel#fpResultKey {{ color: {TEXT_SECONDARY}; }}
 QLabel#fpResultValue {{ color: {ACCENT_GREEN}; font-weight: bold; }}
 QLabel#focusReadout {{ font-size: {FOCUS_READOUT_FONT_PT}pt; color: {ACCENT_BLUE}; }}
 QLabel#focusBest {{ font-size: {FOCUS_BEST_FONT_PT}pt; color: {ACCENT_GREEN}; }}
+QLabel#focusWarning {{ color: {ACCENT_ORANGE}; font-weight: bold; }}
+QLabel#focusHint {{ color: {TEXT_PRIMARY}; font-size: {FP_INSTRUCTION_FONT_PT}pt; }}
 QLabel#livePreview {{ background-color: {BORDER_COLOR}; border: 1px solid {BORDER_COLOR}; }}
 QLabel#comparePreview {{ background-color: {BORDER_COLOR}; }}
 """

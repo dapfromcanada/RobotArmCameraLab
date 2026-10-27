@@ -13,6 +13,7 @@ from camera_lab.two_d.catalog.store import (
     CatalogError,
     LensInfo,
     Result,
+    catalog_backups_dir,
     catalog_path,
 )
 
@@ -22,5 +23,6 @@ __all__ = [
     "CatalogError",
     "LensInfo",
     "Result",
+    "catalog_backups_dir",
     "catalog_path",
 ]

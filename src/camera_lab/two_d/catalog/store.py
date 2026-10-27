@@ -37,6 +37,17 @@ def catalog_path() -> Path:
     return Path(override) if override else ws_root() / "config" / CATALOG_FILENAME
 
 
+def catalog_backups_dir(path: Path | None = None) -> Path:
+    """``CAMERA_LAB_CATALOG_BACKUPS`` or ``camera_catalog_backups/`` next to the catalog.
+
+    Next to the catalog is the same disk: point the variable at another disk or a synced
+    folder to survive losing this one."""
+    override = os.environ.get("CAMERA_LAB_CATALOG_BACKUPS")
+    if override:
+        return Path(override)
+    return (path if path is not None else catalog_path()).parent / "camera_catalog_backups"
+
+
 def _utc() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
@@ -135,6 +146,25 @@ class Catalog:
 
     def __exit__(self, *_exc: object) -> None:
         self.close()
+
+    def backup(self, reason: str, folder: Path | None = None) -> Path:
+        """A dated, consistent copy of the whole catalog (SQLite's online backup, safe while
+        the GUI, CLI or MCP write). Every copy is kept: each is a few hundred kB."""
+        out_dir = folder if folder is not None else catalog_backups_dir(self.path)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        slug = re.sub(r"[^a-z0-9]+", "-", reason.lower()).strip("-")[:40] or "backup"
+        target = out_dir / f"camera_catalog-{stamp}-{slug}.sqlite"
+        n = 1
+        while target.exists():
+            n += 1
+            target = out_dir / f"camera_catalog-{stamp}-{slug}-{n}.sqlite"
+        dest = sqlite3.connect(target)
+        try:
+            self._conn.backup(dest)
+        finally:
+            dest.close()
+        return target
 
     # ------------------------------------------------------------ plumbing
     @contextmanager

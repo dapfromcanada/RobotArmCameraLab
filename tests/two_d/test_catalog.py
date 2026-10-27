@@ -352,3 +352,17 @@ def test_a_new_model_gets_a_sheet_the_tools_can_load(tmp_path: Path) -> None:
     sheet = load_model_sheet("NEW-1", tmp_path / "papers")
     assert sheet is not None and sheet.design_mode == "raw" and sheet.sensor.colour == "mono"
     assert sheet.performance.full_scale_dn == 4095 and sheet.performance.read_noise_dn == 1.73
+
+
+def test_backup_is_a_dated_complete_copy(cat: Catalog, tmp_path: Path) -> None:
+    lid = cat.add_lens("Kowa LM8HC", focal_mm=8.0, mount="C", stops=(1.4, 16.0), actor="human")
+    first = cat.backup("add lens kowa")
+    second = cat.backup("add lens kowa")
+    assert first.parent == tmp_path / "camera_catalog_backups" and first != second
+    assert first.name.startswith("camera_catalog-") and first.name.endswith("-add-lens-kowa.sqlite")
+    with Catalog(first) as copy:
+        lens = copy.lens(lid)
+        assert lens is not None and lens.name == "Kowa LM8HC"
+        assert len(copy.changes()) == len(cat.changes())
+    elsewhere = cat.backup("manual", folder=tmp_path / "usb")
+    assert elsewhere.parent == tmp_path / "usb"

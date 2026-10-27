@@ -728,6 +728,7 @@ class CameraWorker(QObject):
                 actor="human",
                 reason="Add a lens (fingerprint window)",
             )
+            cat.backup(f"add lens {lens_id}")
         session.reload_lenses()
         session.select_lens(lens_id)
         return self._fp_outcome(None)

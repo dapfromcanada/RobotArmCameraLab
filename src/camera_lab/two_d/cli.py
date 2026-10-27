@@ -900,11 +900,13 @@ def catalog_import_cmd(
         rep = import_all(cat)
         paper_facts = import_papers(cat) if papers else {}
         path = cat.path
+        saved = cat.backup("catalog import")
     data = {
         **rep.__dict__,
         "notes": list(rep.notes),
         "catalog": str(path),
         "papers": paper_facts,
+        "backup": str(saved),
     }
     emit(
         data,
@@ -913,8 +915,33 @@ def catalog_import_cmd(
             f"{path}: {rep.camera_models} camera models, {rep.cameras} cameras, {rep.lenses} "
             f"lenses, {rep.runs} runs, {rep.results} results, {rep.pair_stops} per-stop values"
             + "".join(f"\n  note: {n}" for n in rep.notes)
+            + f"\n  backup: {saved}"
         ),
     )
+
+
+@catalog_app.command("backup")
+@handle_errors
+def catalog_backup_cmd(
+    to: Annotated[
+        Path | None,
+        typer.Option(
+            help="Folder for the copy (default: CAMERA_LAB_CATALOG_BACKUPS or "
+            "camera_catalog_backups/ next to the catalog)."
+        ),
+    ] = None,
+    json_out: JsonOpt = False,
+) -> None:
+    """A dated copy of the whole catalog. Fingerprint runs, Add a lens and `catalog import`
+    make one by themselves.
+
+    Example: camera-lab two-d catalog backup --to /media/usb/camera_lab
+    """
+    from camera_lab.two_d.catalog import Catalog
+
+    with Catalog() as cat:
+        saved = cat.backup("manual", folder=to)
+    emit({"backup": str(saved)}, json_out, lambda: f"catalog backed up to {saved}")
 
 
 @catalog_app.command("lenses")

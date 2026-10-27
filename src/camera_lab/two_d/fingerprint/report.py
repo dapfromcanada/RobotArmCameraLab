@@ -251,11 +251,16 @@ class ReportMixin(SessionBase):
                 model = str(ident["model"])
                 changed = update_facts_from_run(cat, model, run_id, ident.get("conditions") or {})
                 written = write_papers(cat, model)
+                try:
+                    copy = cat.backup(f"fingerprint {ident['serial']}")
+                    saved = f"; catalog backed up to {copy}"
+                except Exception as exc:  # the run is in the catalog: only the copy failed
+                    saved = f"; catalog backup FAILED ({type(exc).__name__}: {exc})"
         except Exception as exc:  # the files are written: never lose the fingerprint
             return f" ; catalog NOT updated ({type(exc).__name__}: {exc}): run `catalog import`"
         return (
             f" ; catalog: {n} results, {pairs} per-stop values, {len(changed)} sheet values "
-            f"updated; papers regenerated ({len(written)} files in {written[0].parent})"
+            f"updated; papers regenerated ({len(written)} files in {written[0].parent}){saved}"
         )
 
     def _user_set_lines(self) -> list[str]:

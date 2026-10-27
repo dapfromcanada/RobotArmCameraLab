@@ -1,7 +1,11 @@
 # camera_lab
 
-A bench tool for humans and an AI agent (Claude, via MCP) to check and tune the cell's cameras and LED lighting:
-capture → score → adjust → repeat, then save the best settings as a preset. It runs outside the robot-arm system.
+A bench tool for humans and AI agents (Claude, via MCP) to check, fingerprint and tune the cell's cameras and LED lighting:
+capture → score → adjust → repeat, then save the best settings as a preset. Every camera model and every camera + lens
+pair is fingerprinted on the bench; the results go into a SQLite catalog, and a white paper per model and per lens is
+generated from it for on-site agents. It runs outside the robot-arm system.
+
+For other agents: `WS/Manuals/apps/camera_lab.md` lists every file this app reads and writes (`camera-lab manual`).
 
 Groups: **2D** (implemented), **3D** and **laser** (Gocator, later). One package, one service layer (`TwoDService`), three thin front ends: CLI, MCP server (stdio), desktop GUI.
 
@@ -30,9 +34,9 @@ Every camera is identified by its serial; aliases are in `config/cameras.yaml`. 
 
 | Alias | Camera | Serial | Driver | Default mode |
 |---|---|---|---|---|
-| `triton` | Lucid Triton TRI054S-C (rolling shutter, Bayer, HDR) | 233100505 | Arena | `hdr` |
-| `mono89` | Lucid Triton TRI089S-M (global shutter, mono, 4096 × 2160) | 244500230 | Arena | `linear` |
-| `apex` | JAI Apex AP-3200T-PGE (3-sensor prism, global shutter) | U330439 | eBUS | `prism` |
+| `triton` | Lucid Triton TRI054S-C (rolling shutter, Bayer, HDR) | 233100505 | Arena | `raw_hdr` |
+| `mono89` | Lucid Triton TRI089S-M (global shutter, mono, 4096 × 2160) | 244500230 | Arena | `raw` |
+| `apex` | JAI Apex AP-3200T-PGE (3-sensor prism, global shutter) | U330439 | eBUS | `raw` |
 | `sim` | built-in simulated camera (needs `--sim`) | SIM-0001 | simulated | `linear` |
 
 Cameras run **free-run** by default. When an exposure needs a longer frame, the driver lowers the frame rate and restores free-run afterwards (and on open).
@@ -59,6 +63,18 @@ camera-lab two-d setup triton                     # guided setup: backup, light,
 camera-lab two-d backup triton                    # save the camera's whole configuration
 camera-lab two-d backups triton                   # list backups
 camera-lab two-d restore triton <backup_id>       # write one back (asks; current state backed up first)
+camera-lab two-d reset mono89                     # factory Default + design mode, every setting read back
+camera-lab two-d verify mono89                    # the white paper's state checks on the live image
+camera-lab two-d assess-light mono89              # site light vs the model's baseline
+camera-lab two-d fingerprint mono89               # the full bench fingerprint (the GUI is easier)
+camera-lab two-d boot-set mono89 --slot Default --yes  # which user set the camera boots from
+camera-lab two-d reboot mono89 --yes              # DeviceReset: like a power cycle
+camera-lab two-d catalog lenses                   # lenses, marked stops, measured light per stop
+camera-lab two-d catalog runs U330439             # fingerprint runs in the catalog
+camera-lab two-d catalog changes                  # who changed what in the catalog
+camera-lab two-d catalog papers                   # regenerate the white papers
+camera-lab two-d catalog backup --to <folder>     # dated copy of the catalog
+camera-lab manual                                 # WS/Manuals/apps/camera_lab.md for other agents
 camera-lab light list                             # also: light set …, light off
 camera-lab limits show                            # limits: lights, rates, protected features (read-only)
 camera-lab charts list                            # test-chart library (config/charts/)
@@ -97,10 +113,14 @@ Open Claude Code in `apps/camera_lab/`, approve the `camera-lab` server once, an
 /mnt/workspaces/robotic_cell/apps/camera_lab/launch.sh --sim    # simulated camera
 ```
 
-Dark mode. Left: camera list. Centre: live view (clipped-pixel overlay) and histogram. Right tabs: Camera (mode + a row per setting, including HDR channels and prism exposures), Light, Scores, Runs (captures, side-by-side compare). Toolbar: Start/Stop live, Capture, Run classic tune, Save/Apply preset, All lights off. Camera work runs in a worker thread; closing the window closes the cameras and turns the lights off.
+Dark mode. Left: camera list. Centre: live view (clipped-pixel overlay) and histogram. Right tabs: Camera (mode + a row per setting, including HDR channels and prism exposures), Light, Scores, Runs (captures, side-by-side compare). Toolbar: Start/Stop live, Capture, Run classic tune, Save/Apply preset, All lights off, Camera setup..., Camera fingerprint..., Focus..., Disconnect. The fingerprint window walks the bench rows with a checklist per row; pick the lens from the list or "Add a lens". The Focus window shows live MTF50 per plane and the best value so far (reset when the chart moves). Setup, fingerprint, focus and Disconnect exclude each other. Messages are also logged to `WS/data/raw_recordings/camera_lab/two_d/gui_messages.log`. Camera work runs in a worker thread; closing the window closes the cameras and turns the lights off.
 
 ## Where things go
 
+- **Catalog (source of truth):** `WS/config/camera_catalog.sqlite`; dated copies in `WS/config/camera_catalog_backups/` after every fingerprint, Add a lens and `catalog import` (set `CAMERA_LAB_CATALOG_BACKUPS` to put them on another disk)
+- White papers (generated from the catalog): `config/camera_models/<model>/camera.md|yaml`, `lenses/<lens>.md|yaml`
+- Fingerprint runs: `WS/config/camera_fingerprints/<serial>/<stamp>/` (frames, `fingerprint.yaml`, `report.md`)
+- Bench (lights, lenses, shortest exposures): `config/fingerprint_bench.yaml`
 - Run records (images, settings, scores): `WS/data/raw_recordings/camera_lab/two_d/<run>/`
 - Focus baselines (camera + lens + working distance): `WS/config/camera_setup/<serial>.json` (written by the first setup)
 - Camera settings backups: `WS/config/camera_backups/<serial>/<id>.json` (made automatically before camera_lab first changes a camera in a session; never overwritten)
@@ -108,7 +128,7 @@ Dark mode. Left: camera list. Centre: live view (clipped-pixel overlay) and hist
 - Safety limits / lights / scoring / aliases / profiles: `config/` (read at start-up; edit and restart)
 - Calibration: `WS/calibration/` — read only; camera_lab warns when a change may invalidate it
 - Test charts: `config/charts/<chart_id>.yaml` (library; AprilTag 36h11 ids 100–199), PDFs in `docs/charts/`
-- Camera node-map dumps: `docs/cameras/`. Spec: `spec/` (read-only). Context for agents: `CONTEXT.md`
+- Camera node-map dumps: `docs/cameras/`. Bench findings: `docs/experiments/`. Spec: `spec/` (read-only). Context for agents: `CONTEXT.md`
 
 ## Tests
 

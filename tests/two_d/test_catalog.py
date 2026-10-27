@@ -324,3 +324,31 @@ def test_papers_are_generated_from_the_catalog(tmp_path: Path) -> None:
         assert sheet is not None and sheet.performance.black_dn == 101
         log = [x for x in c.changes(50) if x["tbl"] == "model_facts" and x["col"] == "value"]
         assert any(x["row_key"] == "AP-3200T-PGE/performance/black_dn" for x in log)
+
+
+def test_a_new_model_gets_a_sheet_the_tools_can_load(tmp_path: Path) -> None:
+    """TRI089S-M 2026-10-27: no hand-written paper, so the fingerprint must give the sheet
+    its identity cells (model, design mode, sensor, full scale) as well as the numbers."""
+    from camera_lab.two_d.camera_models import load_model_sheet
+    from camera_lab.two_d.catalog.papers import update_facts_from_run, write_papers
+
+    with Catalog(tmp_path / "c.sqlite") as c:
+        c.upsert_camera_model(
+            "NEW-1", vendor="Lucid", shutter="global", colour="mono", design_mode="raw"
+        )
+        c.upsert_camera("S1", "NEW-1")
+        doc = _fp_doc("Kowa LM8HC, f/1.4")
+        doc["flat"]["response"]["saturation_dn"] = 4095.0  # type: ignore[index]
+        c.add_run(
+            "S1/a",
+            "S1",
+            kind="fingerprint",
+            started_utc="2026-10-27T08:36:23",
+            status="pass",
+            results=results_from_fingerprint(doc, 1.4),
+        )  # type: ignore[arg-type]
+        update_facts_from_run(c, "NEW-1", "S1/a", {"gain_db": 0.0, "black_level": 1.0})
+        write_papers(c, "NEW-1", tmp_path / "papers")
+    sheet = load_model_sheet("NEW-1", tmp_path / "papers")
+    assert sheet is not None and sheet.design_mode == "raw" and sheet.sensor.colour == "mono"
+    assert sheet.performance.full_scale_dn == 4095 and sheet.performance.read_noise_dn == 1.73

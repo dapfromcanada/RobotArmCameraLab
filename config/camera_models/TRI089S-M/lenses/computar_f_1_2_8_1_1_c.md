@@ -1,4 +1,4 @@
-# Computar f=1:2.8 1.1" C on the TRI089S-M — lens white paper (generated 2026-10-27 09:02 UTC from the camera catalog)
+# Computar f=1:2.8 1.1" C on the TRI089S-M — lens white paper (generated 2026-10-27 09:06 UTC from the camera catalog)
 
 What this lens does on this camera model (vignetting and colour shading depend on the sensor size and on a prism or Bayer sensor). Lens: Computar f=1:2.8 1.1" C, 8 mm, C-mount.
 

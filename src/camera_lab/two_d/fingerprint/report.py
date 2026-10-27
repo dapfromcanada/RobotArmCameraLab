@@ -249,7 +249,7 @@ class ReportMixin(SessionBase):
                 n, pairs = import_run(cat, folder / "fingerprint.yaml", lens_id=self.lens_id)
                 run_id = f"{folder.parent.name}/{folder.name}"
                 model = str(ident["model"])
-                changed = update_facts_from_run(cat, model, run_id)
+                changed = update_facts_from_run(cat, model, run_id, ident.get("conditions") or {})
                 written = write_papers(cat, model)
         except Exception as exc:  # the files are written: never lose the fingerprint
             return f" ; catalog NOT updated ({type(exc).__name__}: {exc}): run `catalog import`"

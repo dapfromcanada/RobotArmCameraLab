@@ -98,10 +98,16 @@ def import_papers(cat: Catalog, config_dir: Path | None = None) -> dict[str, int
 
 
 # --------------------------------------------- facts from a new fingerprint
-def update_facts_from_run(cat: Catalog, model: str, run_id: str) -> list[str]:
+def update_facts_from_run(
+    cat: Catalog, model: str, run_id: str, conditions: dict[str, Any] | None = None
+) -> list[str]:
     """The cells the site tools read, from a fingerprint's own numbers (each change logged
-    with the run as its source). Returns the keys that changed."""
+    with the run as its source). A model new to the catalog also gets the sheet's identity
+    cells (model, vendor, design mode, sensor, full scale, conditions), so its sheet loads
+    (TRI089S-M 2026-10-27). Returns the keys that changed."""
     res = cat.results(run_id)
+    facts = cat.facts(model)
+    row = next((m for m in cat.camera_models() if m["id"] == model), {})
 
     def one(q: str, **cond: Any) -> float | None:
         for r in res:
@@ -115,6 +121,16 @@ def update_facts_from_run(cat: Catalog, model: str, run_id: str) -> list[str]:
 
     changed: list[str] = []
 
+    def first(key: str, value: Any) -> None:  # identity cells: only where missing
+        if (
+            key not in facts
+            and value is not None
+            and cat.set_fact(
+                model, key, value, source=run_id, actor="fingerprint", reason="new camera model"
+            )
+        ):
+            changed.append(key)
+
     def put(key: str, value: Any) -> None:
         if isinstance(value, dict):  # a whole table replaces its cells
             for old in [k for k in cat.facts(model) if k.startswith(key + SEP)]:
@@ -124,6 +140,19 @@ def update_facts_from_run(cat: Catalog, model: str, run_id: str) -> list[str]:
         ):
             changed.append(key)
 
+    sat_any = one("saturation_dn")
+    first("schema_version", 1)
+    first("model", model)
+    first("vendor", row.get("vendor"))
+    first("design_mode", row.get("design_mode"))
+    first("sensor/shutter", row.get("shutter"))
+    first("sensor/colour", row.get("colour"))
+    if sat_any:  # the output's full scale: 2^bits - 1 just above the saturation level
+        first("performance/full_scale_dn", float(2 ** math.ceil(math.log2(sat_any + 1) - 1e-9) - 1))
+    for k, v in (conditions or {}).items():
+        if k in ("gain_db", "black_level") and isinstance(v, int | float):
+            first(f"performance/conditions/{'black_level_pct' if k == 'black_level' else k}", v)
+    facts = cat.facts(model)
     black = one("black_dn", note="design gain, shortest exposure")
     rn = one("read_noise_dn", note="design gain, shortest exposure")
     put("performance/black_dn", _round(black))

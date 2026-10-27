@@ -297,3 +297,30 @@ def test_add_a_lens_puts_it_in_the_catalog_and_picks_it(
         lens = cat.lens("fuji_12mm_hf12xa")
         assert lens is not None and (lens.open_f, lens.closed_f, lens.focal_mm) == (2.0, 16.0, 12.0)
         assert any(c["actor"] == "human" and c["tbl"] == "lenses" for c in cat.changes(20))
+
+
+def test_a_huge_message_keeps_the_buttons_on_screen(qtbot: QtBot, main: MainWindow) -> None:
+    """Derek 2026-10-27: a long STOP pushed the buttons off the screen."""
+    from camera_lab.two_d.gui.widgets.fingerprint_window import MESSAGE_HEIGHT, ROW_MESSAGE_CHARS
+
+    dlg = open_fp(qtbot, main)
+    huge = "STOP - " + "setting x differs; " * 400
+    dlg._show_message(huge, "stop")
+    dlg._set_row("cap", "stop", huge)
+    from PySide6.QtWidgets import QApplication
+
+    QApplication.processEvents()
+    assert dlg.message_scroll.height() == MESSAGE_HEIGHT  # the text scrolls inside
+    assert dlg.message_text() == huge  # nothing lost: copy has it all
+    assert len(dlg._message_labels["cap"].text()) <= ROW_MESSAGE_CHARS + 2
+    assert dlg._message_labels["cap"].toolTip() == huge
+    for button in (dlg.run_step_button, dlg.retry_button, dlg.skip_button, dlg.copy_button):
+        top_left = button.mapTo(dlg, button.rect().topLeft())
+        assert top_left.y() >= 0 and top_left.y() + button.height() <= dlg.height()
+
+
+def test_messages_go_to_the_log_file(tmp_path: Path) -> None:
+    from camera_lab.two_d.gui.workers import message_log, message_log_path
+
+    message_log("fingerprint power [fail]: a very long message")
+    assert "a very long message" in message_log_path().read_text()

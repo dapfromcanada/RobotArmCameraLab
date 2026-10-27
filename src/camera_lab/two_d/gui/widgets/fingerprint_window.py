@@ -43,6 +43,8 @@ PANEL_WIDTH = 560
 RESULTS_MIN_HEIGHT = 160
 WINDOW_WIDTH = 1300
 WINDOW_HEIGHT = 900
+MESSAGE_HEIGHT = 110  # the message box; longer text scrolls inside it
+ROW_MESSAGE_CHARS = 220  # a row shows this much; the rest is in its tooltip and the copy
 BUTTON_HEIGHT = 36
 
 WINDOW_TITLE = "Camera fingerprint"
@@ -145,6 +147,9 @@ class FingerprintWindow(QDialog):
         self.steps_title_label = QLabel("Fingerprint steps")
         self.steps_container = QWidget()
         self.message_label = QLabel(START_TEXT)
+        self.message_scroll = QScrollArea()  # fixed height: a long message scrolls
+        self.top_scroll = QScrollArea()  # instruction, lens, checklist, rows
+        self.top_container = QWidget()
         self.checks_title_label = QLabel(CHECKS_TITLE)
         self.checks_container = QWidget()
         self._check_boxes: list[QCheckBox] = []
@@ -205,18 +210,28 @@ class FingerprintWindow(QDialog):
         self.lens_layout.addWidget(self.add_lens_button)
         self.iris_layout.addWidget(self.iris_label)
         self.iris_layout.addWidget(self.iris_combo, 1)
-        self.panel_layout.addWidget(self.instruction_label)
-        self.panel_layout.addLayout(self.lens_layout)
-        self.panel_layout.addLayout(self.iris_layout)
-        self.panel_layout.addWidget(self.lens_text_label)
-        self.panel_layout.addWidget(self.checks_title_label)
-        self.panel_layout.addWidget(self.checks_container)
-        self.panel_layout.addWidget(self.steps_title_label)
-        self.panel_layout.addWidget(self.steps_container)
-        self.panel_layout.addWidget(self.message_label)
+        # Derek 2026-10-27: a long STOP pushed the buttons off the screen. Everything above the
+        # buttons scrolls; the message has its own fixed-height scroll box; the buttons are
+        # always visible below them.
+        self.top_layout = QVBoxLayout(self.top_container)
+        self.top_layout.setContentsMargins(0, 0, 0, 0)
+        self.top_layout.setSpacing(SPACING)
+        self.top_layout.addWidget(self.instruction_label)
+        self.top_layout.addLayout(self.lens_layout)
+        self.top_layout.addLayout(self.iris_layout)
+        self.top_layout.addWidget(self.lens_text_label)
+        self.top_layout.addWidget(self.checks_title_label)
+        self.top_layout.addWidget(self.checks_container)
+        self.top_layout.addWidget(self.steps_title_label)
+        self.top_layout.addWidget(self.steps_container)
+        self.top_layout.addStretch(1)
+        self.top_scroll.setWidget(self.top_container)
+        self.message_scroll.setWidget(self.message_label)
+        self.panel_layout.addWidget(self.top_scroll, 3)
+        self.panel_layout.addWidget(self.message_scroll)
         self.panel_layout.addLayout(self.button_layout)
         self.panel_layout.addWidget(self.results_title_label)
-        self.panel_layout.addWidget(self.results_scroll, 1)
+        self.panel_layout.addWidget(self.results_scroll, 2)
         self.panel_layout.addWidget(self.folder_label)
 
     # --- Signals & Slots ---
@@ -240,15 +255,22 @@ class FingerprintWindow(QDialog):
         self.steps_title_label.setObjectName("secondaryLabel")
         self.checks_title_label.setObjectName("secondaryLabel")
         self.results_title_label.setObjectName("secondaryLabel")
-        self.message_label.setObjectName("setupMessage")
+        self.message_label.setObjectName("fpMessage")
         self.folder_label.setObjectName("secondaryLabel")
         self.lens_text_label.setObjectName("secondaryLabel")
         self._set_property(self.message_label, "level", LEVEL_INFO)
 
     # --- Initial State ---
     def _load_initial_state(self) -> None:
-        self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
+        screen = self.screen().availableGeometry() if self.screen() is not None else None
+        width = min(WINDOW_WIDTH, int(screen.width() * 0.95)) if screen else WINDOW_WIDTH
+        height = min(WINDOW_HEIGHT, int(screen.height() * 0.9)) if screen else WINDOW_HEIGHT
+        self.resize(width, height)
         self.panel_widget.setFixedWidth(PANEL_WIDTH)
+        for scroll in (self.top_scroll, self.message_scroll):
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.message_scroll.setFixedHeight(MESSAGE_HEIGHT)
         self.instruction_label.setWordWrap(True)
         self.message_label.setWordWrap(True)
         self.folder_label.setWordWrap(True)
@@ -448,9 +470,11 @@ class FingerprintWindow(QDialog):
 
     def _set_row(self, step: FpSetup, state: str, message: str = "") -> None:
         self._row_states[step] = state
-        self._row_messages[step] = message
+        self._row_messages[step] = message  # the full text: Copy messages
         self._status_labels[step].setText(STATUS_TEXT[state])
-        self._message_labels[step].setText(message)
+        short = message if len(message) <= ROW_MESSAGE_CHARS else message[:ROW_MESSAGE_CHARS] + " …"
+        self._message_labels[step].setText(short)
+        self._message_labels[step].setToolTip(message)
         self._set_property(self._status_labels[step], "state", state)
 
     def _show_message(self, text: str, level: str) -> None:

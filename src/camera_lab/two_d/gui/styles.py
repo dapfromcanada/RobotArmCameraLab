@@ -34,6 +34,7 @@ TAB_PADDING_H = 14
 SCROLLBAR_WIDTH = 10
 FONT_SIZE_PT = 10
 SETUP_MESSAGE_FONT_PT = 14
+FP_MESSAGE_FONT_PT = 10  # the fingerprint message box (fixed height, scrolls)
 SETUP_MESSAGE_PADDING = 10
 SETUP_MESSAGE_BORDER = 2
 FP_INSTRUCTION_FONT_PT = 12
@@ -170,6 +171,13 @@ QLabel#setupMessage[level="stop"] {{
     font-weight: bold;
 }}
 QLabel#setupMessage[level="pass"] {{ border-color: {ACCENT_GREEN}; }}
+QLabel#fpMessage {{
+    background-color: {DARK_BG_ALT};
+    padding: {SETUP_MESSAGE_PADDING}px;
+    font-size: {FP_MESSAGE_FONT_PT}pt;
+}}
+QLabel#fpMessage[level="stop"] {{ color: {ACCENT_RED}; font-weight: bold; }}
+QLabel#fpMessage[level="pass"] {{ color: {ACCENT_GREEN}; }}
 QLabel#fpInstruction {{
     background-color: {DARK_BG_ALT};
     border: {SETUP_MESSAGE_BORDER}px solid {ACCENT_BLUE};

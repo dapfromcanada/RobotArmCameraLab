@@ -39,6 +39,8 @@ from camera_lab.two_d.models import ROI, CameraSettings, CameraSettingsPatch
 FIRST = ("pixel_format", "roi_width", "roi_height", "roi_x", "roi_y")
 LAST = ("hdr.enabled",)
 SITE_SLOT = "UserSet1"
+#: Values a factory Default's auto functions may move at boot (not compared at restore).
+AUTO_DRIVEN = frozenset({"exposure_us", "gain_db"})
 
 
 def flat(s: CameraSettings) -> dict[str, Any]:
@@ -348,21 +350,31 @@ class UserSetMeasurements(CoreMeasurements):
         booted = flat(self.service.get_settings(self.camera_id).settings)
         self.service.load_user_set(self.camera_id, "Default")
         default = flat(self.service.get_settings(self.camera_id).settings)
-        open_sets = self._open_sets()
+        # a factory Default may run auto exposure / gain / white balance (TRI089S-M: auto
+        # exposure on, 2026-10-27): those values drift at boot before camera_lab turns the
+        # autos off, so they are not compared; the boot set itself is
+        skip = set(self._open_sets()) | AUTO_DRIVEN
         diff = [
             k
             for k in sorted(set(booted) | set(default))
-            if k not in open_sets and not same(booted.get(k), default.get(k))
+            if k not in skip and not k.startswith("wb_") and not same(booted.get(k), default.get(k))
         ]
         expect_default = (not p["boot_feature"]) or p.get("prev_boot") == "Default"
-        if expect_default and diff:
+        boot_now = self.service.user_set_info(self.camera_id).get("boot_set")
+        wrong_boot = p["boot_feature"] and boot_now not in (None, p.get("prev_boot"))
+        if wrong_boot or (expect_default and diff):
+            shown = ", ".join(diff[:6]) + (f" and {len(diff) - 6} more" if len(diff) > 6 else "")
+            why = (
+                f"it boots from {boot_now}, not {p.get('prev_boot')}"
+                if wrong_boot
+                else f"after a restart {shown} differ from factory Default"
+            )
             return self._record(
                 FpResult(
                     step="restore_user_sets",
                     status="fail",
-                    message=f"{done}; but after a restart the camera does NOT boot as from "
-                    f"factory Default: {', '.join(diff)} differ",
-                    data={"differences": diff},
+                    message=f"{done}; but the camera does NOT boot as expected: {why}",
+                    data={"differences": diff, "boot_set": boot_now},
                 )
             )
         return self._record(

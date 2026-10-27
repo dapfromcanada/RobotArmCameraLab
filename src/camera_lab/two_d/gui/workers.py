@@ -17,6 +17,8 @@ from collections import deque
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -25,7 +27,7 @@ from PySide6.QtCore import QObject, QTimer, Signal, Slot
 from PySide6.QtGui import QImage
 
 from camera_lab.core.logging import get_logger
-from camera_lab.core.paths import safe_join, two_d_runs_root
+from camera_lab.core.paths import data_root, safe_join, two_d_runs_root
 from camera_lab.core.presets import PresetRef
 from camera_lab.core.records import CaptureSidecar, RunSummary
 from camera_lab.core.safety import NotAdjustable
@@ -213,6 +215,24 @@ class FocusOutcome:
 
 
 # ============================================================== pure helpers
+def message_log_path() -> Path:
+    """``<data_root>/two_d/gui_messages.log``: every fingerprint row result and failed job,
+    in full (Derek 2026-10-27: a message too long for the window must never be lost)."""
+    return data_root() / "two_d" / "gui_messages.log"
+
+
+def message_log(text: str) -> None:
+    """Append one line (never fails the job)."""
+    try:
+        path = message_log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with path.open("a", encoding="utf-8") as f:
+            f.write(f"{stamp} {text}\n")
+    except OSError:
+        _log.warning("gui_message_log_failed")
+
+
 def preview_to_qimage(rgb: npt.NDArray[np.uint8]) -> QImage:
     """Copy an 8-bit RGB array (HxWx3) into an owning ``QImage``."""
     arr = np.ascontiguousarray(rgb)
@@ -389,13 +409,19 @@ class CameraWorker(QObject):
         try:
             payload = handler(**args)
         except CameraBusyError as exc:
+            message_log(f"{name} FAILED ({exc.code}): {exc}")
             self.job_failed.emit(name, exc.code, str(exc))
         except TwoDError as exc:
+            message_log(f"{name} FAILED ({exc.code}): {exc}")
             self.job_failed.emit(name, exc.code, str(exc))
         except Exception as exc:
             _log.exception("gui_job_failed", job=name)
+            message_log(f"{name} FAILED (internal_error): {type(exc).__name__}: {exc}")
             self.job_failed.emit(name, "internal_error", f"{type(exc).__name__}: {exc}")
         else:
+            if isinstance(payload, FingerprintOutcome) and payload.result is not None:
+                r = payload.result
+                message_log(f"fingerprint {r.step} [{r.status}]: {r.message}")
             self.job_done.emit(name, payload)
 
     @Slot()

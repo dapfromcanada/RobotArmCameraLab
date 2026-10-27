@@ -565,7 +565,9 @@ def test_setups_run_each_bench_state_once(svc: TwoDService, tmp_path: Path) -> N
         ses.run("cap", ses.plan["cap"].checks)
     assert {lid for lid, _, _ in ses.lens_choices} == {"jai_6mm_0628", "kowa_8mm"}
     ses.select_lens("kowa_8mm")  # the bench file's list: the temp workspace catalog is empty
-    assert ses.lens == "Kowa LM8HC, f/1.4" and "Iris at f/1.4 (fully open)" in ses.plan["cap"].checks
+    assert (
+        ses.lens == "Kowa LM8HC, f/1.4" and "Iris at f/1.4 (fully open)" in ses.plan["cap"].checks
+    )
 
     stop = ses.run("cap", ses.plan["cap"].checks)  # the chart is in view: no cap
     assert stop.status == "fail" and stop.message.startswith("darks: light reaches the sensor")
@@ -677,8 +679,8 @@ def test_flicker_stops_a_channel_sweep(tmp_roots: Path, monkeypatch: pytest.Monk
 def test_lit_measurements_respect_the_bench_minimum(svc: TwoDService, tmp_path: Path) -> None:
     ses = FingerprintSession(svc, SIM, root=tmp_path / "fp", reset=False)
     assert svc.get_profile(SIM).characteristics.shutter == "global"  # the bench's global min
-    assert ses.min_exposure_us == 1000.0  # (rolling shutter: 2000, see the TRI054S tests)
-    assert ses._lit_range()[0] >= 1000.0
+    assert ses.min_exposure_us == 500.0  # (rolling shutter: 2000, see the TRI054S tests)
+    assert ses._lit_range()[0] >= 500.0
 
 
 @pytest.mark.parametrize("boot_feature", [True, False])
@@ -821,7 +823,7 @@ def test_jai_recipe_uses_the_end_stop_and_the_global_shutter_minimum() -> None:
             return {"slots": ["Default", "UserSet1"], "boot_set_feature": False}
 
     ses = FingerprintSession(_Svc(), "U330439")  # type: ignore[arg-type]
-    assert ses.lens == "JAI 6 mm 0628-C3, f/2.8" and ses.min_exposure_us == 1000.0
+    assert ses.lens == "JAI 6 mm 0628-C3, f/2.8" and ses.min_exposure_us == 500.0
     assert "Iris at f/2.8 (fully open)" in ses.plan["diffuser"].checks
     assert "Iris at f/2.8 (fully open)" in ses.plan["finish"].checks
     assert [ses.plan[s].checks[0] for s in ("lens_1", "lens_2", "lens_3", "lens_4")] == [

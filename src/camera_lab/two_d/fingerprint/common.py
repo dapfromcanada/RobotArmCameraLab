@@ -265,7 +265,10 @@ def iris_hint(factor: float, lens: str) -> str:
         now = float(m.group(1))
         target = now * math.sqrt(factor)
         nearest = min(F_STOPS, key=lambda f: abs(math.log(f / target)))
-        text += f" (f/{now:g} → about f/{nearest:g})"
+        if nearest != now:
+            text += f" (f/{now:g} → about f/{nearest:g})"
+        else:  # less than half a marked stop: no mark to turn to
+            text += f" (less than half a stop from f/{now:g}: no mark to turn to)"
     return text
 
 

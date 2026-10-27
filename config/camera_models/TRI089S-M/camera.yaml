@@ -1,0 +1,16 @@
+# Generated from WS/config/camera_catalog.sqlite: edit the catalog, not this file.
+performance:
+  black_dn: 41.34
+  read_noise_dn: 0.8827
+  row_noise_dn: 0.1408
+  dynamic_range_stops: 12.16
+  dynamic_range_db: 73.2
+  system_gain_dn_per_e: 0.3705
+  full_well_e: 10880.0
+  linearity_error_pct: 0.2593
+  prnu_pct: 1.659
+timing:
+  fps_full_frame:
+    Mono8: 12.59
+    Mono12p: 8.39
+    Mono16: 6.29

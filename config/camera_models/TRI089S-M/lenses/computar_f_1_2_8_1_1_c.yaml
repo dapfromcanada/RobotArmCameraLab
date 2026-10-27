@@ -1,0 +1,35 @@
+# Generated from WS/config/camera_catalog.sqlite: edit the catalog, not this file.
+schema_version: 1
+model: TRI089S-M
+lens: computar_f_1_2_8_1_1_c
+lens_name: Computar f=1:2.8 1.1" C
+stops:
+- f_number: 2.8
+  end_stop: open
+  light_vs_open: null
+  corner_ratio:
+    all: 0.31630109315767085
+- f_number: 4.0
+  end_stop: null
+  light_vs_open: 0.5672190396376896
+  corner_ratio:
+    all: 0.4216931217397017
+- f_number: 5.6
+  end_stop: null
+  light_vs_open: 0.2925730115985004
+  corner_ratio:
+    all: 0.5547009871639051
+- f_number: 8.0
+  end_stop: null
+  light_vs_open: 0.15916784746870702
+  corner_ratio:
+    all: 0.6120982893329692
+- f_number: 11.0
+  end_stop: null
+  light_vs_open: 0.0815267435710083
+  corner_ratio:
+    all: 0.6192887409907833
+- f_number: 16.0
+  end_stop: closed
+  light_vs_open: 0.036696830997710234
+  corner_ratio: {}

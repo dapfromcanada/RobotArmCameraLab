@@ -10,7 +10,8 @@ min_exposure_us: 2000
 # Global-shutter cameras: no row bands, only frame-to-frame variation. JAI AP-3200T under
 # the floods (iris open, 2026-10-24): 6.5 % at 0.05 ms, 3.8 % at 0.1, 2.2 % at 0.25,
 # 1.0 % at 0.5, 0.8 % at 1, 0.7 % at 2, 0.6 % at 5 ms (0.6 % is the floor at any exposure).
-min_exposure_global_us: 1000
+# 0.5 ms since 2026-10-27: the TRI089S-M + Kowa at f/1.4 reaches 80 % at ≈ 8 ms (sweep needs 10×).
+min_exposure_global_us: 500
 
 light:
   label: "DC LED floods at full on the opal acrylic diffuser (bench light since 2026-10-23)"

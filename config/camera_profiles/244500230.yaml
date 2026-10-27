@@ -15,9 +15,27 @@ characteristics:
     - "BalanceRatio* / BalanceWhiteAuto nodes are listed but neither readable nor writable."
     - "Has Gamma (0.2-2.0); base settings keep gamma 1.0 so images stay linear for measurement."
 
-default_mode: linear
+default_mode: raw
 
 modes:
+  raw:
+    strategy: linear
+    description: >
+      The camera's design mode for measurement and detection (2026-10-26, like the JAI's raw):
+      12-bit mono (Mono12p), gain 0 dB, gamma 1.0, LUT off, BlackLevel 1 (factory Default is
+      Mono8, gain 0, gamma 1, LUT off, BlackLevel 0 - read live 2026-10-26; a black level above
+      0 keeps dark noise from being clipped at 0, as on the TRI054S). Exposure is the only knob.
+      Fingerprint, verify, site tool and tune use it.
+    settings:
+      pixel_format: Mono12p
+      gain_db: 0
+      gamma: 1.0
+      advanced: {lut.enabled: "off", black.level: 1.0}
+    knobs: [exposure_us]
+    scoring:
+      level_metric: p99        # one brightness rule for linear raw data: highlights at 80 %
+      target_mean: 0.80
+      clip_max_pct: 0.2
   linear:
     strategy: linear
     description: >

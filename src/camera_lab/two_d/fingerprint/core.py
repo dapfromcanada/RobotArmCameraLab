@@ -96,7 +96,15 @@ class CoreMeasurements(SessionBase):
         black_raised = None
         black = view.ranges.get("black.level")
         current = view.settings.advanced.get("black.level")
-        if black is not None and not isinstance(black, NotAdjustable):
+        # measure at the design mode's own black level where it pins one (TRI089S-M raw: 1,
+        # 2026-10-27); raise it only for HDR channel outputs (12-bit, noise ≈ 45 DN at black)
+        # or where the mode leaves it at the camera's (often 0: dark noise clipped)
+        pinned = (mode.settings.advanced or {}).get("black.level") is not None
+        if (
+            black is not None
+            and not isinstance(black, NotAdjustable)
+            and (self.hdr_channels or not pinned)
+        ):
             target = min(BLACK_RAISE, float(black.max.value))
             if isinstance(current, int | float) and current < target:
                 self._set(advanced={"black.level": target})

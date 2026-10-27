@@ -341,6 +341,12 @@ class Catalog:
                     actor,
                     reason,
                 )
+            # fully open is the reference of every measured stop: 1.0 by definition
+            conn.execute(
+                "UPDATE lens_stops SET transmission = 1.0, measured_utc = 'definition' "
+                "WHERE lens_id = ? AND f_number = ? AND transmission IS NULL",
+                (lid, marked[0]),
+            )
         return lid
 
     def set_transmission(

@@ -12,6 +12,7 @@ config files in ``APP/config/`` > built-in defaults.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -172,6 +173,24 @@ def mcp(
     from camera_lab.core.mcp_server import run_stdio
 
     run_stdio(sim=state(ctx).sim or sim)
+
+
+# ------------------------------------------------------------------- manual
+@app.command("manual")
+@handle_errors
+def manual(
+    out: Annotated[
+        Path | None, typer.Option(help="Write here instead of WS/Manuals/apps/camera_lab.md.")
+    ] = None,
+) -> None:
+    """Write the app page other agents read: what camera_lab does, its revision, and every
+    file it reads and writes, from the app's own paths.
+
+    Example: camera-lab manual
+    """
+    from camera_lab.core.manual import write_manual
+
+    typer.echo(f"wrote {write_manual(out)}")
 
 
 # ---------------------------------------------------------------------- gui

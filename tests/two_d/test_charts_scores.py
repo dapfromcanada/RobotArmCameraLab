@@ -68,6 +68,39 @@ def test_mtf50_matches_theory(px: float, sigma: float) -> None:
     assert not r["any_clipped"]
 
 
+@pytest.mark.parametrize(("px", "sigma"), [(3.5, 1.0), (9.8, 1.9)])
+def test_mtf50_holds_on_a_noisy_frame(px: float, sigma: float) -> None:
+    """Bench frames are noisy and the chart may be close (wide edge regions): the noise
+    across a wide region must not pull the edge off (2026-10-28: TRI089S-M read 0.03 for a
+    real ~0.09 at 9.8 px/mm, and ~35 % low at 3.5 px/mm)."""
+    chart = _chart("resolution")
+    page = cv2.GaussianBlur(rasterize(chart, px).astype(np.float64) / 255.0, (0, 0), sigma)
+    rng = np.random.default_rng(7)
+    img = 0.06 + 0.5 * page + rng.normal(0.0, 0.004, page.shape)  # bench-like levels and noise
+    det = _detect(np.clip(np.round(page * 255), 0, 255).astype(np.uint8), chart)
+    r = score_resolution(img, det, chart)
+    assert r["edges_measured"] == 8
+    assert r["mtf50_cyc_px"] == pytest.approx(_expected_mtf50(sigma), rel=0.05)
+
+
+def test_squares_are_found_where_the_tag_misplaces_them() -> None:
+    """A chart close to a wide lens: the squares sit tens of pixels from where the one tag
+    predicts them. The edges are placed from the squares found in the image."""
+    px, sigma = 9.8, 1.9
+    chart = _chart("resolution")
+    page = rasterize(chart, px).astype(np.float64) / 255.0
+    top = int(120 * px)  # the squares are below 120 mm, the tag above
+    page[top:] = np.roll(page[top:], (25, 30), axis=(0, 1))  # ~3 mm off the prediction
+    page = cv2.GaussianBlur(page, (0, 0), sigma)
+    rng = np.random.default_rng(3)
+    img = 0.06 + 0.5 * page + rng.normal(0.0, 0.004, page.shape)
+    det = _detect(np.clip(np.round(page * 255), 0, 255).astype(np.uint8), chart)
+    r = score_resolution(img, det, chart)
+    assert r["edges_measured"] == 8
+    assert {e["placed_by"] for e in r["edges"]} == {"square"}
+    assert r["mtf50_cyc_px"] == pytest.approx(_expected_mtf50(sigma), rel=0.05)
+
+
 def test_mtf50_on_a_tilted_view() -> None:
     chart = _chart("resolution")
     page = rasterize(chart, 4.0)

@@ -18,7 +18,8 @@ Derek's principles (they decide every design question):
 - **Catalog** (`two_d/catalog/`, schema v2): `WS/config/camera_catalog.sqlite`; tables camera_models, cameras, lenses, lens_stops, pairs, pair_stops, fingerprints, results, change_log, paper_sections, model_facts. `Catalog` is the only access and logs every change. Dated copies go to `WS/config/camera_catalog_backups/` (or `CAMERA_LAB_CATALOG_BACKUPS`). CLI `two-d catalog import|backup|lenses|runs|changes|papers|facts`.
 - **White papers:** `config/camera_models/<model>/camera.md` + `camera.yaml`, and `lenses/<lens>.md` + `.yaml` per lens tested on the model. Generated: edit the catalog (`catalog facts --set`, sections), never the files. MCP `get_camera_white_paper` returns them.
 - **Lenses** are picked from the catalog list in the fingerprint window; "Add a lens" (name, focal length, mount, marked stops picked from the standard list) is the only data entry. Fully open = transmission 1.0 by definition.
-- **Focus tool** (`two_d/focus.py`, GUI "Focus..."): live MTF50 per plane, a best value that resets when the chart moves, warnings. Setup, fingerprint, focus and Disconnect exclude each other in the GUI.
+- **Focus tool** (`two_d/focus.py`, GUI "Focus..."): live MTF50 per plane, a best value that resets when the chart moves, warnings.
+- **Slanted-edge scorer** (`two_d/charts/scores.py`, fixed 2026-10-28): each square is found in the image (`square_corners`; the chart's one tag only says where to look) and each edge is located roughly, then precisely in a narrow band with the background gradient removed, fitted with a degree-2 curve. Each edge records `placed_by` (square / tag). The old scorer read 22 % low at 3.5 px/mm and 61 % low at 9.8 px/mm on noisy frames: MTF50 values from before 2026-10-28 (JAI chart tests, setup baselines) are too low. Setup, fingerprint, focus and Disconnect exclude each other in the GUI.
 - **GUI messages** are also written to `WS/data/raw_recordings/camera_lab/two_d/gui_messages.log`.
 
 ### Cameras on the bench
@@ -34,13 +35,15 @@ Derek's principles (they decide every design question):
 - User sets: the fingerprint writes markers into every writable setting, cuts the power and checks what came back; settings the driver writes on every open (`OPEN_SETS`) prove nothing and are left out.
 - Lens iris rings are hard to set exactly: the lens-row light check allows half-way to the neighbouring stops. Rows the human returns to run at an end stop.
 - Lenses have a format and a resolution rating: a 2K lens looks soft on a 9 MP sensor.
+- TRI089S-M + Computar 8mm, chart centre at ~65 cm (2026-10-27/28, fixed scorer, 3 frames per stop, spread < 1 %): MTF50 0.223 / 0.225 / **0.233** / 0.218 / 0.183 / 0.128 cycles/px at f/2.8 / 4 / 5.6 / 8 / 11 / 16; best f/5.6; f/16 matches lens ⊕ diffraction (0.158). Horizontal resolution 0.26 vs vertical 0.20 wide open, converging when stopped down (likely astigmatism). At ~23 cm: 0.095 at f/4 (worse up close). The camera has no sharpening node; defect correction patches 10 pixels; gamma 1.0.
 
 ### Open
 - MCP tools pending Derek's review: `assess_site_light`, `get_camera_white_paper` (now also lens papers), `reset_camera`, `verify_camera_state`.
 - TRI089S-M camera paper: prose sections not written.
 - Lens format / pixel-rating fields and mismatch warnings; corner sharpness.
 - The setup procedure still uses its own focus measurement (not the Focus tool).
-- Check the mono's sharpening / defect-correction nodes before reading chart MTF.
+- Corner sharpness of the mono + Computar at f/5.6 (next bench test).
+- Re-record the setup focus baselines in `WS/config/camera_setup/` (233100505, U330439): made with the old scorer, so the 10 % drop check is too lenient. Repeat the JAI chart tests with the fixed scorer.
 - Possible camera-lock gap between the GUI and a second process.
 - Phase 10 step 6 (bench guidance) not started; 3D and laser groups later.
 

@@ -23,7 +23,7 @@ from camera_lab.two_d.charts.detect import (
 )
 from camera_lab.two_d.charts.library import tag_owner
 from camera_lab.two_d.charts.models import ChartSpec, SlantedSquareFeature
-from camera_lab.two_d.charts.scores import _edge_mtf
+from camera_lab.two_d.charts.scores import _edge_mtf, square_corners
 from camera_lab.two_d.models import Frame
 from camera_lab.two_d.processing import demosaic, to_float01
 
@@ -127,7 +127,7 @@ class FocusMeter:
                 px_per_mm=None,
                 warnings=(
                     *warnings,
-                    "no resolution chart in view: all four corner tags must be visible",
+                    "no resolution chart in view: the tag at its top left must be visible",
                 ),
                 hint="put the resolution chart in view",
                 **base,  # type: ignore[arg-type]
@@ -141,8 +141,12 @@ class FocusMeter:
         mtf: dict[str, float | None] = {}
         lp: dict[str, float | None] = {}
         counts: dict[str, int] = {}
+        # the squares as found in the image: the one tag misplaces them near the image
+        # edge or close to a wide lens (2026-10-28)
+        main_plane = planes["G" if "G" in planes else "Y"]
+        found = {f.name: square_corners(main_plane, det, f) for f in squares}
         for name, plane in planes.items():
-            edges = [_edge_mtf(plane, det, f, k) for f in squares for k in range(4)]
+            edges = [_edge_mtf(plane, det, f, k, found[f.name]) for f in squares for k in range(4)]
             ok = [e for e in edges if e.get("mtf50_cyc_px") is not None]
             counts[name] = len(ok)
             mtf[name] = round(float(median(e["mtf50_cyc_px"] for e in ok)), 4) if ok else None

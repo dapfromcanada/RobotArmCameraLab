@@ -59,6 +59,16 @@ EDGE_MIN_ROWS = 20
 EDGE_MIN_HALF_WIDTH_PX = 8
 EDGE_MIN_ANGLE_DEG = 1.0
 EDGE_MIN_CONTRAST = 0.05
+#: Locating the edge: rows whose strongest step is further than this from the rough line
+#: are left out; the precise centroid uses a band of max(min, region width / div) px.
+EDGE_ROUGH_TOL_PX = 3.0
+#: Finding a slanted square in the image: search margin and largest centre shift (× its
+#: predicted side), and the accepted area (× predicted side²).
+SQUARE_SEARCH_PAD = 0.4
+SQUARE_MAX_SHIFT = 0.3
+SQUARE_AREA_RANGE = (0.6, 1.6)
+EDGE_BAND_MIN_PX = 10
+EDGE_BAND_DIV = 8
 OVERSAMPLE = 4
 #: Edge names of a slanted square, in corner order (top, right, bottom, left before rotation).
 EDGE_SIDES = ("top", "right", "bottom", "left")
@@ -195,24 +205,119 @@ def score_grey_patch(
 
 
 # ------------------------------------------------------------- resolution
+def _locate_edge(sub: npt.NDArray[np.float64]) -> npt.NDArray[np.float64] | str:
+    """The edge in the region as a curve, column = poly(row), or why there is none.
+
+    Rough first: the strongest step in each row (smoothed along the edge), a robust line.
+    Then precise: the gradient centroid in a narrow band around that line, with the band's
+    background gradient removed, so noise and paper texture across a wide region (a chart
+    close to the lens) cannot pull the estimate off the edge. Degree 2 (ISO 12233:2017
+    allows a polynomial edge) follows the slight bend lens distortion gives a straight edge
+    away from the image centre."""
+    rows, cols = sub.shape
+    grad = np.abs(np.diff(sub, axis=1))
+    r = np.arange(rows, dtype=np.float64)
+    rough = cv2.blur(grad, (3, 9)).argmax(axis=1).astype(np.float64) + 0.5
+    keep = np.ones(rows, bool)
+    for _ in range(3):
+        coef = np.polyfit(r[keep], rough[keep], 1)
+        keep = np.abs(rough - np.polyval(coef, r)) < EDGE_ROUGH_TOL_PX
+        if keep.sum() < EDGE_MIN_ROWS:
+            return "no straight edge found in the region"
+    band = max(EDGE_BAND_MIN_PX, cols // EDGE_BAND_DIV)
+    at = np.arange(cols - 1, dtype=np.float64) + 0.5
+    inside = np.abs(at[None, :] - np.polyval(coef, r)[:, None]) <= band
+    in_band = np.where(inside, grad, np.nan)
+    background = np.nanmedian(in_band, axis=1)
+    g = np.clip(np.nan_to_num(in_band) - background[:, None], 0.0, None)
+    weight = g.sum(axis=1)
+    ok = keep & (weight > 0)
+    if ok.sum() < EDGE_MIN_ROWS:
+        return "no edge found in most rows"
+    cen = (g[ok] * at).sum(axis=1) / weight[ok]
+    deg = 2 if ok.sum() >= 3 * EDGE_MIN_ROWS else 1
+    fit = np.polyfit(r[ok], cen, deg)
+    good = np.abs(cen - np.polyval(fit, r[ok])) < 2.0
+    if good.sum() >= EDGE_MIN_ROWS:
+        fit = np.polyfit(r[ok][good], cen[good], deg)
+    return np.asarray(fit, np.float64)
+
+
+def square_corners(
+    luma: npt.NDArray[np.float64], det: ChartDetection, sq: SlantedSquareFeature
+) -> npt.NDArray[np.float64] | None:
+    """The square's four corners as found in the image (in the order of ``sq.corners()``),
+    or None when it cannot be found cleanly.
+
+    The homography comes from the chart's one tag. Far from that tag, and where the lens
+    bends straight lines (a chart close to a wide lens, or near the image edge), it can miss
+    a square by tens of pixels (TRI089S-M + 8 mm, 2026-10-28): the edge regions are then
+    placed from the square itself, and the tag only says where to look."""
+    pred = chart_to_image(det, sq.corners())
+    side = float(np.mean(np.linalg.norm(pred - np.roll(pred, 1, axis=0), axis=1)))
+    h, w = luma.shape
+    x0, y0 = np.floor(pred.min(axis=0) - SQUARE_SEARCH_PAD * side).astype(int)
+    x1, y1 = np.ceil(pred.max(axis=0) + SQUARE_SEARCH_PAD * side).astype(int)
+    x0, y0, x1, y1 = max(x0, 0), max(y0, 0), min(x1, w), min(y1, h)
+    if x1 - x0 < 2 * EDGE_MIN_HALF_WIDTH_PX or y1 - y0 < 2 * EDGE_MIN_HALF_WIDTH_PX:
+        return None
+    crop = luma[y0:y1, x0:x1]
+    lo, hi = np.percentile(crop, [2, 98])
+    if hi - lo < EDGE_MIN_CONTRAST:
+        return None
+    mask = (crop < (lo + hi) / 2).astype(np.uint8)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    centre = pred.mean(axis=0) - (x0, y0)
+    for c in sorted(contours, key=cv2.contourArea, reverse=True):
+        if not SQUARE_AREA_RANGE[0] < cv2.contourArea(c) / side**2 < SQUARE_AREA_RANGE[1]:
+            continue
+        quad = cv2.approxPolyDP(c, 0.03 * cv2.arcLength(c, True), True)
+        if len(quad) != 4 or not cv2.isContourConvex(quad):
+            continue
+        q = quad.reshape(4, 2).astype(np.float64)
+        if np.linalg.norm(q.mean(axis=0) - centre) > SQUARE_MAX_SHIFT * side:
+            continue
+        found = np.array([q[np.argmin(np.linalg.norm(q - (p - (x0, y0)), axis=1))] for p in pred])
+        if len({tuple(p) for p in found}) == 4:
+            return np.asarray(found, np.float64) + np.array([x0, y0], np.float64)
+    return None
+
+
 def _edge_mtf(
-    luma: npt.NDArray[np.float64], det: ChartDetection, sq: SlantedSquareFeature, k: int
+    luma: npt.NDArray[np.float64],
+    det: ChartDetection,
+    sq: SlantedSquareFeature,
+    k: int,
+    corners_px: npt.NDArray[np.float64] | None = None,
 ) -> dict[str, Any]:
+    """MTF of one edge. ``corners_px``: the square as found in the image
+    (:func:`square_corners`); without it the region comes from the homography."""
     name = f"{sq.name}/{EDGE_SIDES[k]}"
     corners = np.array(sq.corners())
     p0, p1 = corners[k], corners[(k + 1) % 4]
     mid = (p0 + p1) / 2
     d = (p1 - p0) / np.linalg.norm(p1 - p0)
     n = np.array([-d[1], d[0]])
-    hl, hw = EDGE_ROI_LEN_FRAC / 2 * sq.size_mm, EDGE_ROI_HALF_WIDTH_MM
-    roi_mm = [
+    pm, pd, pn = chart_to_image(det, [mid, mid + d, mid + n])
+    scale = float(np.linalg.norm(pn - pm))  # px per mm across the edge
+    if corners_px is not None:
+        p0, p1 = corners_px[k], corners_px[(k + 1) % 4]
+        mid = (p0 + p1) / 2
+        side = float(np.linalg.norm(p1 - p0))
+        d = (p1 - p0) / side
+        n = np.array([-d[1], d[0]])
+        hl = EDGE_ROI_LEN_FRAC / 2 * side
+        hw = EDGE_ROI_HALF_WIDTH_MM / sq.size_mm * side
+        pm, pd = mid, mid + d
+    else:
+        hl, hw = EDGE_ROI_LEN_FRAC / 2 * sq.size_mm, EDGE_ROI_HALF_WIDTH_MM
+    quad = [
         mid - d * hl - n * hw,
         mid + d * hl - n * hw,
         mid + d * hl + n * hw,
         mid - d * hl + n * hw,
     ]
-    roi = chart_to_image(det, roi_mm)
-    pm, pd, pn = chart_to_image(det, [mid, mid + d, mid + n])
+    roi = np.array(quad) if corners_px is not None else chart_to_image(det, quad)
     h, w = luma.shape
     x0, y0 = np.ceil(roi.min(axis=0)).astype(int)
     x1, y1 = np.floor(roi.max(axis=0)).astype(int)
@@ -225,26 +330,22 @@ def _edge_mtf(
     rows, cols = sub.shape
     if rows < EDGE_MIN_ROWS or cols < 2 * EDGE_MIN_HALF_WIDTH_PX:
         return {"edge": name, "error": f"edge region too small ({rows} x {cols} px)"}
-    grad = np.abs(np.diff(sub, axis=1))
-    weight = grad.sum(axis=1)
-    if np.any(weight <= 0):
-        return {"edge": name, "error": "no edge found in some rows"}
-    centroid = (grad * (np.arange(cols - 1) + 0.5)).sum(axis=1) / weight
+    edge = _locate_edge(sub)
+    if isinstance(edge, str):
+        return {"edge": name, "error": edge}
     r = np.arange(rows, dtype=np.float64)
-    a, b = np.polyfit(r, centroid, 1)
-    keep = np.abs(centroid - (a * r + b)) < 2.0
-    if keep.sum() >= EDGE_MIN_ROWS:
-        a, b = np.polyfit(r[keep], centroid[keep], 1)
+    a = float(np.polyval(np.polyder(edge), rows / 2))  # slope at the middle row
     angle = math.degrees(math.atan(a))
     if abs(angle) < EDGE_MIN_ANGLE_DEG:
         return {
             "edge": name,
             "error": f"edge is {angle:.2f}° from the pixel axis (needs ≥ {EDGE_MIN_ANGLE_DEG}°)",
         }
-    cos = math.cos(math.atan(a))
-    cc, rr = np.meshgrid(np.arange(cols, dtype=np.float64), r)
-    dist = (cc - (a * rr + b)) * cos
-    half = min(float(np.min(a * r + b)), float(np.min(cols - 1 - (a * r + b)))) * cos - 1.0
+    line = np.polyval(edge, r)
+    cos_r = np.cos(np.arctan(np.polyval(np.polyder(edge), r)))
+    cc = np.arange(cols, dtype=np.float64)[None, :]
+    dist = (cc - line[:, None]) * cos_r[:, None]
+    half = float(np.min(np.minimum(line, cols - 1 - line) * cos_r)) - 1.0
     if half < EDGE_MIN_HALF_WIDTH_PX:
         return {"edge": name, "error": "edge too close to the region border"}
     sel = np.abs(dist) <= half
@@ -277,7 +378,6 @@ def _edge_mtf(
         i = int(below[0])
         f0, f1, m0, m1 = freqs[i - 1], freqs[i], mtf[i - 1], mtf[i]
         mtf50 = float(f0 + (m0 - 0.5) * (f1 - f0) / (m0 - m1))
-    scale = float(np.linalg.norm(pn - pm))  # px per mm across the edge
     return {
         "edge": name,
         "orientation": "horizontal" if horizontal else "vertical",
@@ -298,12 +398,11 @@ def score_resolution(
     img: npt.NDArray[np.float64], det: ChartDetection, spec: ChartSpec
 ) -> dict[str, Any]:
     luma = to_luma(img)
-    edges = [
-        _edge_mtf(luma, det, f, k)
-        for f in spec.features
-        if isinstance(f, SlantedSquareFeature)
-        for k in range(4)
-    ]
+    squares = [f for f in spec.features if isinstance(f, SlantedSquareFeature)]
+    found = {f.name: square_corners(luma, det, f) for f in squares}
+    edges = [_edge_mtf(luma, det, f, k, found[f.name]) for f in squares for k in range(4)]
+    for e in edges:
+        e["placed_by"] = "square" if found[e["edge"].split("/")[0]] is not None else "tag"
     ok = [e for e in edges if e.get("mtf50_cyc_px") is not None]
     # vertical edges (varying along x) measure horizontal resolution
     hor = [e["mtf50_cyc_px"] for e in ok if e["orientation"] == "vertical"]

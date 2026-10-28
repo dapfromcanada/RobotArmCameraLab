@@ -31,6 +31,7 @@ from camera_lab.core.paths import data_root, safe_join, two_d_runs_root
 from camera_lab.core.presets import PresetRef
 from camera_lab.core.records import CaptureSidecar, RunSummary
 from camera_lab.core.safety import NotAdjustable
+from camera_lab.two_d.catalog import PartArea
 from camera_lab.two_d.errors import CameraBusyError, InvalidRequestError, TwoDError
 from camera_lab.two_d.fingerprint.session import (
     FingerprintSession,
@@ -51,6 +52,7 @@ from camera_lab.two_d.gui.constants import (
     TUNE_MAX_STEPS,
 )
 from camera_lab.two_d.models import (
+    ROI,
     ApplyResult,
     CameraInfo,
     CameraSettingsPatch,
@@ -109,6 +111,15 @@ class ApplyOutcome:
     """Result of ``apply`` / ``set_mode`` / ``tune`` style jobs that change settings."""
 
     result: ApplyResult | None
+    view: SettingsView
+    mode: str | None = None
+
+
+@dataclass(frozen=True)
+class ResetOutcome:
+    """Result of ``reset``: factory Default + the design mode, every setting read back."""
+
+    result: dict[str, Any]
     view: SettingsView
     mode: str | None = None
 
@@ -277,6 +288,8 @@ def build_live_frame(frame: Frame) -> tuple[QImage, dict[str, Any]]:
         width=frame.width,
         height=frame.height,
         pixel_format=frame.pixel_format,
+        roi_x=frame.settings.roi.x,  # where the image sits on the sensor (part area)
+        roi_y=frame.settings.roi.y,
     )
     return preview_to_qimage(preview), stats
 
@@ -346,6 +359,7 @@ class CameraWorker(QObject):
             "settings": self._job_settings,
             "apply": self._job_apply,
             "set_mode": self._job_set_mode,
+            "reset": self._job_reset,
             "capture": self._job_capture,
             "tune": self._job_tune,
             "lights_list": self._job_lights_list,
@@ -371,6 +385,9 @@ class CameraWorker(QObject):
             "fingerprint_select_lens": self._job_fingerprint_select_lens,
             "fingerprint_set_iris": self._job_fingerprint_set_iris,
             "catalog_add_lens": self._job_catalog_add_lens,
+            "part_area": self._job_part_area,
+            "part_area_set": self._job_part_area_set,
+            "part_area_clear": self._job_part_area_clear,
         }
         self._setup: SetupSession | None = None
         self._fingerprint: FingerprintSession | None = None
@@ -501,6 +518,11 @@ class CameraWorker(QObject):
         cid = self._require_camera()
         result = self.service.set_mode(cid, mode, ACTOR)
         return ApplyOutcome(result, self.service.get_settings(cid), self.service.current_mode(cid))
+
+    def _job_reset(self) -> ResetOutcome:
+        cid = self._require_camera()
+        result = self.service.reset_camera(cid, None, ACTOR)
+        return ResetOutcome(result, self.service.get_settings(cid), self.service.current_mode(cid))
 
     def _job_capture(self, note: str = "gui capture") -> CaptureOutcome:
         cid = self._require_camera()
@@ -748,6 +770,17 @@ class CameraWorker(QObject):
         return self._fp_outcome(result)
 
     # ---------------------------------------------------------------- live
+    def _job_part_area(self) -> PartArea | None:
+        return self.service.part_area(self._require_camera())
+
+    def _job_part_area_set(self, x: int, y: int, width: int, height: int) -> PartArea | None:
+        area = ROI(x=x, y=y, width=width, height=height)
+        return self.service.set_part_area(self._require_camera(), area, ACTOR)
+
+    def _job_part_area_clear(self) -> PartArea | None:
+        self.service.clear_part_area(self._require_camera(), ACTOR)
+        return None
+
     def _job_live_start(self) -> None:
         self._require_camera()
         if self._live_timer is None:

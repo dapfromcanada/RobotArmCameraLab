@@ -89,6 +89,7 @@ from camera_lab.core.safety import (
 from camera_lab.two_d.backups import BackupError, BackupStore, CameraBackup, RestoreReport
 from camera_lab.two_d.calib_guard import calibration_warnings
 from camera_lab.two_d.camera_config import CamerasConfig, load_cameras_config
+from camera_lab.two_d.catalog import Catalog, CatalogError, PartArea, catalog_path
 from camera_lab.two_d.charts.library import tag_owner
 from camera_lab.two_d.charts.models import ChartSpec
 from camera_lab.two_d.charts.scores import chart_records, chart_records_array
@@ -120,11 +121,13 @@ from camera_lab.two_d.models import (
     ScoreReport,
     SettingSpec,
 )
+from camera_lab.two_d.part_area import place
 from camera_lab.two_d.processing import make_preview
 from camera_lab.two_d.profiles import CameraProfile, load_profile
 from camera_lab.two_d.scoring import (
     ScoringConfig,
     ScoringParams,
+    ScoringParamsOverride,
     load_scoring_config,
     score_array,
     score_frame,
@@ -245,6 +248,11 @@ class _OpenCamera:
 RecorderFactory = Callable[..., RunRecorder]
 
 
+def _set_fields(ovr: ScoringParamsOverride) -> dict[str, Any]:
+    """The override's given fields as values (models stay models: no serializer warnings)."""
+    return {k: getattr(ovr, k) for k in ovr.model_dump(exclude_none=True)}
+
+
 # =================================================================== service
 class TwoDService:
     """The 2D library API (thread-compatible: one front end per process)."""
@@ -265,6 +273,7 @@ class TwoDService:
         profiles_root: Path | None = None,
         charts_root: Path | None = None,
         backups_root: Path | None = None,
+        catalog: Path | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
@@ -287,6 +296,7 @@ class TwoDService:
         self._profiles_root = profiles_root
         self._charts_root = charts_root
         self._backups = BackupStore(backups_root)
+        self._catalog = catalog
         self._profiles: dict[str, CameraProfile] = {}
         self._clock = clock
         self._sleep = sleep
@@ -303,20 +313,103 @@ class TwoDService:
         except UnsafePathError as exc:
             raise InvalidRequestError(str(exc)) from None
 
-    def scoring_params(self, camera_id: str | None = None, tag: str | None = None) -> ScoringParams:
-        """Scoring params: default ← camera ← current mode (profile) ← preset tag."""
+    def scoring_params(
+        self, camera_id: str | None = None, tag: str | None = None, view: ROI | None = None
+    ) -> ScoringParams:
+        """Scoring params: default ← camera ← part area ← current mode (profile) ← preset tag.
+
+        ``view`` is the camera ROI the image was taken with (default: the open camera's), so
+        the part area lands on the same sensor pixels however the camera ROI crops."""
         serial = self.cameras.resolve(camera_id) if camera_id else None
         params = self.scoring.resolve(serial)
+        update: dict[str, Any] = {"roi_source": "config" if params.roi else "none"}
         oc = self._open.get(serial) if serial else None
+        area = self._read_part_area(serial) if serial else None
+        if area is not None:
+            if view is None and oc is not None:
+                view = oc.camera.get_settings().roi
+            if view is None:
+                update["roi_note"] = "part area not placed: the image's camera ROI is unknown"
+            else:
+                placed = place(area, view)
+                update["roi_note"] = placed.note
+                if placed.roi is not None:
+                    update.update(roi=placed.roi, roi_source="part_area")
+        params = params.model_copy(update=update)
         if oc is not None and oc.mode is None and serial is not None:
             oc.mode = self._infer_mode(serial)
         if oc is not None and oc.mode is not None and serial is not None:
             _, mode = self.get_profile(serial).mode(oc.mode)
-            params = params.model_copy(update=mode.scoring.model_dump(exclude_none=True))
+            ovr = _set_fields(mode.scoring)
+            if "roi" in ovr:
+                ovr["roi_source"] = "config"
+            params = params.model_copy(update=ovr)
         tag_ovr = self.scoring.tags.get(tag or "")
         if tag_ovr is not None:
-            params = params.model_copy(update=tag_ovr.model_dump(exclude_none=True))
+            ovr = _set_fields(tag_ovr)
+            if "roi" in ovr:
+                ovr["roi_source"] = "tag"
+            params = params.model_copy(update=ovr)
         return ScoringParams.model_validate(params.model_dump())
+
+    # ------------------------------------------------------------ part area
+    def _catalog_file(self) -> Path:
+        return self._catalog if self._catalog is not None else catalog_path()
+
+    def _read_part_area(self, serial: str) -> PartArea | None:
+        """The camera's part area; None when there is no catalog yet (never creates one)."""
+        path = self._catalog_file()
+        if not path.is_file():
+            return None
+        with Catalog(path) as cat:
+            return cat.part_area(serial)
+
+    def part_area(self, camera_id: str) -> PartArea | None:
+        """The camera's saved part area (full-sensor pixels), or None."""
+        return self._read_part_area(self.resolve(camera_id))
+
+    def set_part_area(self, camera_id: str, area: ROI, actor: Actor = "human") -> PartArea:
+        """Save the part area (full-sensor pixels) of an open camera, drawn on its image.
+
+        The camera joins the catalog if its model is there; the catalog is backed up after
+        the change (it is human-entered: source of truth)."""
+        serial, oc = self._require_open(camera_id)
+        view = oc.camera.get_settings().roi
+        if place(PartArea(area.x, area.y, area.width, area.height), view).note is not None:
+            raise InvalidRequestError(
+                f"the part area {area.x},{area.y} {area.width}×{area.height} must lie inside "
+                f"the image ({view.x},{view.y} {view.width}×{view.height})"
+            )
+        who: Literal["human", "agent"] = "agent" if actor == "agent" else "human"
+        with Catalog(self._catalog_file()) as cat:
+            if cat.model_of(serial) is None:
+                model = oc.camera.info.model
+                if model not in {m["id"] for m in cat.camera_models()}:
+                    raise CatalogError(
+                        f"camera model {model} is not in the catalog: fingerprint the camera "
+                        "or import it first"
+                    )
+                cat.upsert_camera(serial, model, actor=who, reason="part area")
+            if cat.set_part_area(
+                serial, area.x, area.y, area.width, area.height, actor=who, reason="drawn"
+            ):
+                cat.backup(f"part area {serial}")
+            saved = cat.part_area(serial)
+        assert saved is not None  # noqa: S101 - just written
+        _log.info("part_area_set", camera_id=serial, area=area.model_dump())
+        return saved
+
+    def clear_part_area(self, camera_id: str, actor: Actor = "human") -> bool:
+        """Remove the camera's part area (the whole image is scored again)."""
+        serial = self.resolve(camera_id)
+        if not self._catalog_file().is_file():
+            return False
+        with Catalog(self._catalog_file()) as cat:
+            done = cat.clear_part_area(serial, actor="agent" if actor == "agent" else "human")
+            if done:
+                cat.backup(f"part area cleared {serial}")
+        _log.info("part_area_cleared", camera_id=serial, removed=done)
+        return done
 
     def _load_real_drivers(self) -> None:
         if self._explicit_drivers:
@@ -1280,7 +1373,8 @@ class TwoDService:
         """Score a TIFF file (pixel format from its camera_lab sidecar, else inferred)."""
         data, pixel_format, bit_depth, serial = self._read_tiff(path, pixel_format, bit_depth)
         try:
-            return score_array(data, pixel_format, bit_depth, self.scoring_params(serial))
+            params = self.scoring_params(serial, view=self._tiff_view(path, data))
+            return score_array(data, pixel_format, bit_depth, params)
         except (TypeError, ValueError) as exc:
             raise InvalidRequestError(f"{path}: {exc}") from None
 
@@ -1296,6 +1390,17 @@ class TwoDService:
             return chart_records_array(data, pixel_format, bit_depth, library)
         except (TypeError, ValueError) as exc:
             raise InvalidRequestError(f"{path}: {exc}") from None
+
+    @staticmethod
+    def _tiff_view(path: Path, data: npt.NDArray[Any]) -> ROI:
+        """The camera ROI a TIFF was taken with (its camera_lab sidecar), else the image at
+        the sensor's origin."""
+        try:
+            with tifffile.TiffFile(path) as tf:
+                meta = json.loads(tf.pages.first.description or "")
+            return ROI.model_validate(meta["settings"]["roi"])
+        except (OSError, ValueError, KeyError, TypeError, tifffile.TiffFileError, ValidationError):
+            return ROI(x=0, y=0, width=int(data.shape[1]), height=int(data.shape[0]))
 
     def _read_tiff(
         self, path: Path, pixel_format: str | None, bit_depth: int | None
@@ -1345,7 +1450,12 @@ class TwoDService:
         except (RunNotFoundError, ValueError) as exc:
             raise NotFoundError(str(exc)) from None
         serial = capture_id.split("_")[1]
-        return score_array(data, side.pixel_format, side.bit_depth, self.scoring_params(serial))
+        try:
+            view = ROI.model_validate(side.settings["roi"])
+        except (KeyError, ValidationError):
+            view = ROI(x=0, y=0, width=side.width, height=side.height)
+        params = self.scoring_params(serial, view=view)
+        return score_array(data, side.pixel_format, side.bit_depth, params)
 
     # ----------------------------------------------------------------- runs
     def start_run(

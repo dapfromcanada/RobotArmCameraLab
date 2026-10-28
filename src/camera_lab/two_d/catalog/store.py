@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from camera_lab.core.paths import ws_root
-from camera_lab.two_d.catalog.schema import migrate
+from camera_lab.two_d.catalog.schema import SCHEMA_VERSION, current_version, migrate
 from camera_lab.two_d.errors import InvalidRequestError
 
 CATALOG_FILENAME = "camera_catalog.sqlite"
@@ -115,6 +115,17 @@ class LensInfo:
         return self.name if f_number is None else f"{self.name}, f/{f_number:g}"
 
 
+@dataclass(frozen=True)
+class PartArea:
+    """Where the part is in the image, in full-sensor pixels (Phase 13)."""
+
+    x: int
+    y: int
+    width: int
+    height: int
+    set_utc: str = ""
+
+
 def _check_names(conn: sqlite3.Connection, table: str, columns: Iterable[str]) -> None:
     """Guard for the identifiers placed in SQL by :meth:`Catalog._write`."""
     known = {str(r[0]) for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
@@ -136,6 +147,9 @@ class Catalog:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._conn.execute("PRAGMA journal_mode = WAL")
+        before = current_version(self._conn)
+        if 0 < before < SCHEMA_VERSION:  # keep the old database as it was
+            self.backup(f"before migration {before} to {SCHEMA_VERSION}")
         self.version = migrate(self._conn)
 
     def close(self) -> None:
@@ -316,6 +330,60 @@ class Catalog:
             "SELECT model_id FROM cameras WHERE serial = ?", (serial,)
         ).fetchone()
         return str(row[0]) if row is not None else None
+
+    # ----------------------------------------------------------- part area
+    def part_area(self, serial: str) -> PartArea | None:
+        """The camera's part area (full-sensor pixels), or None."""
+        row = self._conn.execute("SELECT * FROM part_areas WHERE serial = ?", (serial,)).fetchone()
+        if row is None:
+            return None
+        return PartArea(row["x"], row["y"], row["width"], row["height"], row["set_utc"])
+
+    def set_part_area(
+        self,
+        serial: str,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        *,
+        actor: Actor = "human",
+        reason: str | None = None,
+    ) -> bool:
+        """Save the camera's part area (one per camera; replaces the old one)."""
+        if min(x, y) < 0 or min(width, height) <= 0:
+            raise CatalogError(f"invalid part area {x},{y} {width}×{height}")
+        with self.transaction() as conn:
+            if conn.execute("SELECT 1 FROM cameras WHERE serial = ?", (serial,)).fetchone() is None:
+                raise CatalogError(f"camera {serial} is not in the catalog")
+            values = {"x": int(x), "y": int(y), "width": int(width), "height": int(height)}
+            old = conn.execute(
+                "SELECT x, y, width, height FROM part_areas WHERE serial = ?", (serial,)
+            ).fetchone()
+            if old is not None and dict(old) == values:
+                return False
+            return self._write(
+                conn, "part_areas", {"serial": serial}, {**values, "set_utc": _utc()}, actor, reason
+            )
+
+    def clear_part_area(self, serial: str, *, actor: Actor = "human") -> bool:
+        """Remove the camera's part area; False if it had none."""
+        with self.transaction() as conn:
+            old = conn.execute("SELECT * FROM part_areas WHERE serial = ?", (serial,)).fetchone()
+            if old is None:
+                return False
+            conn.execute("DELETE FROM part_areas WHERE serial = ?", (serial,))
+            conn.execute(
+                "INSERT INTO change_log (utc, actor, tbl, row_key, col, old, new, reason) "
+                "VALUES (?, ?, 'part_areas', ?, NULL, ?, 'deleted', NULL)",
+                (
+                    _utc(),
+                    actor,
+                    serial,
+                    f"{old['x']},{old['y']},{old['width']},{old['height']}",
+                ),
+            )
+            return True
 
     # --------------------------------------------------------------- lenses
     def add_lens(

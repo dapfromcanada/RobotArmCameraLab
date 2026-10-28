@@ -136,6 +136,17 @@ MIGRATIONS: tuple[str, ...] = (
         PRIMARY KEY (model_id, key)
     );
     """,
+    # 3: the part area per camera (Derek 2026-10-28, Phase 13): drawn on the live image
+    """
+    CREATE TABLE part_areas (
+        serial TEXT PRIMARY KEY REFERENCES cameras (serial),
+        x INTEGER NOT NULL,                  -- full-sensor pixels
+        y INTEGER NOT NULL,
+        width INTEGER NOT NULL,
+        height INTEGER NOT NULL,
+        set_utc TEXT NOT NULL
+    );
+    """,
 )
 
 SCHEMA_VERSION = len(MIGRATIONS)

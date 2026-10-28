@@ -940,6 +940,44 @@ numbers into verdicts and actions by comparing them with that baseline.
 - **Next:**
   the "fresh agent" test (an agent with only camera_lab + the white paper sets the camera up).
 
+## Phase 13 — Part area (an ROI drawn on the live image, saved per camera)
+*Added by Derek, 2026-10-28 (approved): "1 and 2, for the part area".*
+**Complexity:** Moderate
+**Goal:** mark once where the part is in the image; brightness scoring and tuning then judge
+the part, not the whole scene.
+
+### Tasks
+1. **Catalog:** table `part_areas` (migration 3), one row per camera serial (the area belongs
+   to how that camera is mounted, not to the model): x, y, width, height in full-sensor
+   pixels. Human-entered, so source of truth: changed only through the app, every change in
+   `change_log`, a catalog backup on every save or clear. A catalog that needs a migration is
+   backed up first.
+2. **Scoring:** `TwoDService.scoring_params` places the part area in the current image (the
+   camera ROI may crop the sensor): default ← camera (`scoring.yaml`) ← **part area** ← mode
+   ← preset tag. Partly outside → the visible part is scored; wholly outside → the whole image
+   is scored and the report says so. Every score records where its ROI came from
+   (`roi_source`: none, config, part_area, tag) and any note. Capture, `score_capture`,
+   `score_file` (camera ROI from the sidecar), the classic tuner and the agents' `capture` /
+   tuning runs all use it; agents cannot set it.
+3. **Site light assessment:** brightness, clipping, black, contrast, structure and SNR on the
+   part area; the 3 × 3 distribution stays whole-image.
+4. **GUI:** a **Part area** button on the live view: drag a box (its size and position shown
+   in sensor pixels and % while dragging), then **Save part area** / **Cancel**; **Clear part
+   area**. The saved area is drawn dashed on the live view, with an on/off check box. Nothing
+   is typed. Saving needs the camera held by the GUI.
+5. **CLI:** `two-d part-area show <camera>`, `two-d part-area clear <camera>`. Drawing is GUI
+   only.
+- **Not in this phase (Derek 2026-10-28):** one area per camera (no list of names); the
+  camera's own ROI is not cropped to it (frame size, calibration and frame rate unchanged);
+  no MCP tool to set it.
+
+### Done when:
+- The part area is drawn and saved on the mono, survives a GUI restart and is drawn again.
+- Its scores differ from whole-image scores on a scene where part and background differ,
+  and equal a hand crop of the same frame.
+- Tests: migration and backup, catalog set / clear / log, placement under a cropped camera
+  ROI (partly and wholly outside), precedence, site-light crop, GUI draw and save.
+
 ## Deferred (keep the interfaces open — do not design these out)
 | Feature | Hook already in place |
 |---|---|
@@ -1005,5 +1043,6 @@ When in doubt, use the strongest tier. Escalate anything questionable.
 | 9 — Hardening & polish | Moderate |
 | 10 — Test charts + controlled bench | Complex |
 | 11 — Camera fingerprint | Complex |
+| 13 — Part area | Moderate |
 
 ---

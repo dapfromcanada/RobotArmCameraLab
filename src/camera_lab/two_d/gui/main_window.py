@@ -9,13 +9,14 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import QRect, Qt, QThread, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QImage
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QSplitter,
     QStatusBar,
     QTabWidget,
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from camera_lab.core.logging import get_logger
+from camera_lab.two_d.catalog import PartArea
 from camera_lab.two_d.gui import styles
 from camera_lab.two_d.gui.constants import ACTOR
 from camera_lab.two_d.gui.heartbeat import UiHeartbeat
@@ -47,6 +49,7 @@ from camera_lab.two_d.gui.workers import (
     OpenOutcome,
     PresetListOutcome,
     PresetOutcome,
+    ResetOutcome,
     RunDetailOutcome,
     RunsOutcome,
     TuneOutcome,
@@ -64,7 +67,7 @@ RIGHT_WIDTH = 460
 CENTRE_MIN_WIDTH = 480
 MARGIN = 0
 THREAD_WAIT_MS = 10_000
-HEAVY_JOBS = frozenset({"capture", "tune"})
+HEAVY_JOBS = frozenset({"capture", "tune", "reset"})
 LOCKED_BY = "locked by "
 NO_LOCK_TEXT = "lock: -"
 TAB_CAMERA = "Camera"
@@ -109,6 +112,7 @@ class MainWindow(QMainWindow):
         self.tune_action = QAction("Run classic tune", self)
         self.save_preset_action = QAction("Save preset...", self)
         self.apply_preset_action = QAction("Apply preset...", self)
+        self.reset_action = QAction("Load camera defaults...", self)
         self.lights_off_action = QAction("All lights off", self)
         self.setup_action = QAction("Camera setup...", self)
         self.fingerprint_action = QAction("Camera fingerprint...", self)
@@ -140,6 +144,7 @@ class MainWindow(QMainWindow):
             "settings": self._show_settings,
             "apply": self._show_applied,
             "set_mode": self._show_applied,
+            "reset": self._show_reset,
             "capture": self._show_captured,
             "tune": self._show_tuned,
             "lights_list": self._show_lights,
@@ -150,6 +155,9 @@ class MainWindow(QMainWindow):
             "presets_list": self._show_preset_choices,
             "preset_save": self._show_preset_saved,
             "preset_apply": self._show_preset_applied,
+            "part_area": self._show_part_area,
+            "part_area_set": self._show_part_area_saved,
+            "part_area_clear": self._show_part_area_cleared,
         }
 
     # --- Layout ---
@@ -179,7 +187,7 @@ class MainWindow(QMainWindow):
         for action in (self.live_action, self.capture_action, self.tune_action):
             self.toolbar.addAction(action)
         self.toolbar.addSeparator()
-        for action in (self.save_preset_action, self.apply_preset_action):
+        for action in (self.save_preset_action, self.apply_preset_action, self.reset_action):
             self.toolbar.addAction(action)
         self.toolbar.addSeparator()
         self.toolbar.addAction(self.lights_off_action)
@@ -223,11 +231,16 @@ class MainWindow(QMainWindow):
         )
         self.run_browser_panel.run_selected.connect(self._on_run_browser_panel_run_selected)
 
+        self.live_view.part_area_save_requested.connect(self._on_live_view_part_area_save_requested)
+        self.live_view.part_area_clear_requested.connect(
+            self._on_live_view_part_area_clear_requested
+        )
         self.live_action.toggled.connect(self._on_live_action_toggled)
         self.capture_action.triggered.connect(self._on_capture_action_triggered)
         self.tune_action.triggered.connect(self._on_tune_action_triggered)
         self.save_preset_action.triggered.connect(self._on_save_preset_action_triggered)
         self.apply_preset_action.triggered.connect(self._on_apply_preset_action_triggered)
+        self.reset_action.triggered.connect(self._on_reset_action_triggered)
         self.lights_off_action.triggered.connect(self._on_lights_off_action_triggered)
         self.setup_action.triggered.connect(self._on_setup_action_triggered)
         self.fingerprint_action.triggered.connect(self._on_fingerprint_action_triggered)
@@ -317,6 +330,8 @@ class MainWindow(QMainWindow):
             has_camera and idle and (free or self._focus_window is not None)
         )
         self.camera_list_panel.set_disconnect_enabled(has_camera and idle and free)
+        self.reset_action.setEnabled(has_camera and idle and free)
+        self.live_view.set_part_area_enabled(has_camera and idle)
         if not has_camera:
             state = "no camera"
         elif self._busy_jobs:
@@ -358,6 +373,7 @@ class MainWindow(QMainWindow):
         self.camera_list_panel.set_open_camera(None)
         self.camera_settings_panel.clear_settings()
         self.live_view.clear_frame()
+        self.live_view.set_part_area(None)
         self.histogram.clear_histogram()
         self.score_panel.clear_scores()
         self.score_panel.clear_processors()
@@ -399,11 +415,31 @@ class MainWindow(QMainWindow):
         self._capture_choices.clear()
         self._show_warning("")
         self._refresh_ui_state()
+        self.live_view.set_part_area(None)
         self._submit("lights_list")
         self._submit("runs", camera_id=self._camera_id)
+        self._submit("part_area")
 
     def _show_closed(self, _payload: object) -> None:
         self._reset_camera_state()
+
+    def _show_part_area(self, area: PartArea | None) -> None:
+        self.live_view.set_part_area(
+            None if area is None else QRect(area.x, area.y, area.width, area.height)
+        )
+
+    def _show_part_area_saved(self, area: PartArea | None) -> None:
+        self._show_part_area(area)
+        self.status_bar.showMessage("part area saved: scores now judge the part")
+
+    def _show_part_area_cleared(self, _payload: object) -> None:
+        self._show_part_area(None)
+        self.status_bar.showMessage("part area cleared: the whole image is scored")
+
+    def _confirm(self, title: str, text: str) -> bool:
+        """Ask yes / no (tests replace this)."""
+        answer = QMessageBox.question(self, title, text)
+        return answer == QMessageBox.StandardButton.Yes
 
     def _show_settings(self, view: SettingsView) -> None:
         self.camera_settings_panel.show_view(view)
@@ -411,6 +447,25 @@ class MainWindow(QMainWindow):
     def _show_applied(self, outcome: ApplyOutcome) -> None:
         self._show_apply_outcome(outcome.result, outcome.view)
         self.camera_settings_panel.show_mode(outcome.mode)
+
+    def _show_reset(self, outcome: ResetOutcome) -> None:
+        self._busy_jobs.discard("reset")
+        self.camera_settings_panel.show_view(outcome.view)
+        self.camera_settings_panel.show_mode(outcome.mode)
+        res = outcome.result
+        mismatches = res.get("mismatches") or []
+        if mismatches:
+            self._show_warning(
+                f"Camera defaults loaded ({res.get('mode')}), but {len(mismatches)} setting(s) "
+                f"did not take: {'; '.join(str(m) for m in mismatches)}"
+            )
+        else:
+            self._show_warning("")
+            self.status_bar.showMessage(
+                f"camera defaults loaded: factory Default + {res.get('mode')}, every setting "
+                f"read back (backup {res.get('backup_before')})"
+            )
+        self._refresh_ui_state()
 
     def _show_captured(self, outcome: CaptureOutcome) -> None:
         self._busy_jobs.discard("capture")
@@ -484,7 +539,7 @@ class MainWindow(QMainWindow):
             holder = message.split(LOCKED_BY, 1)[1] if LOCKED_BY in message else ""
             self._lock_note = f"lock: busy ({holder})" if code == "camera_busy" else ""
             self._reset_camera_state()
-        elif name in ("apply", "set_mode", "preset_apply"):
+        elif name in ("apply", "set_mode", "preset_apply", "reset"):
             self.camera_settings_panel.show_error(message)
         self._show_warning(f"{name}: {message}")
         self._refresh_ui_state()
@@ -493,7 +548,13 @@ class MainWindow(QMainWindow):
         if self._closed:
             return
         overlay = stats.get("clip_overlay")
-        self.live_view.show_frame(image, overlay if isinstance(overlay, QImage) else None)
+        view = QRect(
+            int(stats.get("roi_x", 0)),
+            int(stats.get("roi_y", 0)),
+            int(stats.get("width", image.width())),
+            int(stats.get("height", image.height())),
+        )
+        self.live_view.show_frame(image, overlay if isinstance(overlay, QImage) else None, view)
         self.live_view.set_info(
             f"{stats.get('width')}x{stats.get('height')} {stats.get('pixel_format')}  "
             f"frame {stats.get('frame_id')}"
@@ -514,6 +575,16 @@ class MainWindow(QMainWindow):
 
     def _on_worker_live_error(self, message: str) -> None:
         self._show_warning(f"live view: {message}")
+
+    def _on_live_view_part_area_save_requested(self, x: int, y: int, w: int, h: int) -> None:
+        self._submit("part_area_set", x=x, y=y, width=w, height=h)
+
+    def _on_live_view_part_area_clear_requested(self) -> None:
+        if self._confirm(
+            "Clear part area",
+            "Remove this camera's part area? Scores will judge the whole image again.",
+        ):
+            self._submit("part_area_clear")
 
     def _on_camera_list_panel_rescan_requested(self) -> None:
         self._submit("discover")
@@ -569,6 +640,14 @@ class MainWindow(QMainWindow):
 
     def _on_apply_preset_action_triggered(self) -> None:
         self._submit("presets_list", camera_id=self._camera_id)
+
+    def _on_reset_action_triggered(self) -> None:
+        if self._confirm(
+            "Load camera defaults",
+            "Load the factory Default settings, then the camera's design mode, and read every "
+            "setting back?\n\nThe camera is backed up first. Nothing is written to its flash.",
+        ):
+            self._submit("reset")
 
     def _on_lights_off_action_triggered(self) -> None:
         self._submit("lights_off")

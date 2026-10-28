@@ -65,7 +65,9 @@ camera-lab two-d backups triton                   # list backups
 camera-lab two-d restore triton <backup_id>       # write one back (asks; current state backed up first)
 camera-lab two-d reset mono89                     # factory Default + design mode, every setting read back
 camera-lab two-d verify mono89                    # the white paper's state checks on the live image
-camera-lab two-d assess-light mono89              # site light vs the model's baseline
+camera-lab two-d assess-light mono89              # site light vs the model's baseline (judges the part area)
+camera-lab two-d part-area show mono89            # the camera's part area (draw it in the GUI's live view)
+camera-lab two-d part-area clear mono89           # remove it: the whole image is scored again
 camera-lab two-d fingerprint mono89               # the full bench fingerprint (the GUI is easier)
 camera-lab two-d boot-set mono89 --slot Default --yes  # which user set the camera boots from
 camera-lab two-d reboot mono89 --yes              # DeviceReset: like a power cycle
@@ -116,11 +118,11 @@ Open Claude Code in `apps/camera_lab/`, approve the `camera-lab` server once, an
 /mnt/workspaces/robotic_cell/apps/camera_lab/launch.sh --sim    # simulated camera
 ```
 
-Dark mode. Left: camera list. Centre: live view (clipped-pixel overlay) and histogram. Right tabs: Camera (mode + a row per setting, including HDR channels and prism exposures), Light, Scores, Runs (captures, side-by-side compare). Toolbar: Start/Stop live, Capture, Run classic tune, Save/Apply preset, All lights off, Camera setup..., Camera fingerprint..., Focus..., Disconnect. The fingerprint window walks the bench rows with a checklist per row; pick the lens from the list or "Add a lens". The Focus window shows live MTF50 per plane and the best value so far (reset when the chart moves). Setup, fingerprint, focus and Disconnect exclude each other. Messages are also logged to `WS/data/raw_recordings/camera_lab/two_d/gui_messages.log`. Camera work runs in a worker thread; closing the window closes the cameras and turns the lights off.
+Dark mode. Left: camera list. Centre: live view (clipped-pixel overlay, part area) and histogram. Under the live view: "Part area" (drag a box around the part, then "Save part area" or "Cancel"), "Clear part area" (asks first), "Show part area" (dashed outline). Scores, the classic tuner and the site light assessment then judge the part. Right tabs: Camera (mode + a row per setting, including HDR channels and prism exposures), Light, Scores, Runs (captures, side-by-side compare). Toolbar: Start/Stop live, Capture, Run classic tune, Save/Apply preset, Load camera defaults... (asks first; the same reset as `two-d reset`: backup, factory Default, design mode, every setting read back; any setting that did not take is shown), All lights off, Camera setup..., Camera fingerprint..., Focus..., Disconnect. The fingerprint window walks the bench rows with a checklist per row; pick the lens from the list or "Add a lens". The Focus window shows live MTF50 per plane and the best value so far (reset when the chart moves). Setup, fingerprint, focus and Disconnect exclude each other. Messages are also logged to `WS/data/raw_recordings/camera_lab/two_d/gui_messages.log`. Camera work runs in a worker thread; closing the window closes the cameras and turns the lights off.
 
 ## Where things go
 
-- **Catalog (source of truth):** `WS/config/camera_catalog.sqlite`; dated copies in `WS/config/camera_catalog_backups/` after every fingerprint, Add a lens and `catalog import` (set `CAMERA_LAB_CATALOG_BACKUPS` to put them on another disk)
+- **Catalog (source of truth):** `WS/config/camera_catalog.sqlite`; dated copies in `WS/config/camera_catalog_backups/` after every fingerprint, Add a lens, part area save / clear, `catalog import` and before a schema migration (set `CAMERA_LAB_CATALOG_BACKUPS` to put them on another disk)
 - White papers (generated from the catalog): `config/camera_models/<model>/camera.md|yaml`, `lenses/<lens>.md|yaml`
 - Fingerprint runs: `WS/config/camera_fingerprints/<serial>/<stamp>/` (frames, `fingerprint.yaml`, `report.md`)
 - Bench (lights, lenses, shortest exposures): `config/fingerprint_bench.yaml`

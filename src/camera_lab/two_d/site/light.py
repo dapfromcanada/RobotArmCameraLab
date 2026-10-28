@@ -12,6 +12,9 @@ should give, and the action):
    band period × the row time gives the light's ripple frequency.
 3. ``brightness`` — the exposure that puts the scene at the camera's best-SNR level, within
    the frame-time budget: enough light, or how much more / less.
+Checks 3–5 and ``structure`` judge the camera's part area when one is saved (Phase 13);
+the linearity, flicker and distribution checks use the whole image.
+
 4. ``snr`` — temporal noise at that exposure vs what this camera model gives at that level.
 5. ``range`` — clipped and black pixels, scene contrast vs the camera's dynamic range.
 6. ``distribution`` — brightness on a 3 × 3 grid (scene and light cannot be separated:
@@ -39,7 +42,8 @@ from camera_lab.two_d.camera_models import ModelSheet, load_model_sheet, paper_p
 from camera_lab.two_d.errors import ConfigurationError
 from camera_lab.two_d.fingerprint import measure as fm
 from camera_lab.two_d.models import CameraSettingsPatch, is_bayer
-from camera_lab.two_d.scoring import score_frame
+from camera_lab.two_d.part_area import crop_plane
+from camera_lab.two_d.scoring import FractionalROI, score_frame
 
 if TYPE_CHECKING:
     from camera_lab.two_d.service import Actor, TwoDService
@@ -119,6 +123,24 @@ class _Assessment:
         self.black = 0.0
         self.budget = 0.0  # longest exposure allowed (µs)
         self.rate0: float | None = None  # mean level per µs at the start (light drift)
+        self.area: FractionalROI | None = None  # the part area in the image (None = whole)
+
+    def part_area(self) -> None:
+        """Judge the part area when the camera has one (brightness, SNR, range)."""
+        params = self.svc.scoring_params(self.cam)
+        if params.roi_source == "part_area":
+            self.area = params.roi
+        if params.roi_note or self.area is not None:
+            self.add(
+                SiteCheck(
+                    name="area",
+                    status="warn" if params.roi_note else "info",
+                    message=params.roi_note
+                    or "brightness, SNR and range are judged on the camera's part area",
+                    action="redraw the part area on the live view" if params.roi_note else "",
+                    data={"roi": self.area.model_dump() if self.area else None},
+                )
+            )
 
     # ---------------------------------------------------------- helpers
     def plane(self) -> npt.NDArray[np.float64]:
@@ -469,8 +491,9 @@ class _Assessment:
 
     def snr_and_range(self, exp: float) -> None:
         exp = self.set_exposure(exp)
-        a, b = self.plane(), self.plane()
-        lvl = self.level(a)
+        whole = self.plane()
+        a, b = crop_plane(whole, self.area), crop_plane(self.plane(), self.area)
+        lvl = self.level(whole)  # the light drift compares whole images
         if self.rate0:
             drift = (lvl / exp) / self.rate0 - 1
             self.add(
@@ -497,7 +520,7 @@ class _Assessment:
             for band in bands
         ]
         ratios = [float(r["snr"]) / float(r["expected"]) for r in rows if r["expected"]]
-        data = {"level": lvl, "exposure_us": exp, "bands": rows}
+        data = {"level": self.level(a), "exposure_us": exp, "bands": rows}
         sample = ", ".join(
             f"{r['level'] * 100:.2g} %: {r['snr']:.0f}"
             + (f" (model {r['expected']:.0f})" if r["expected"] else "")
@@ -601,7 +624,8 @@ class _Assessment:
                 data={"contrast_stops": contrast, "texture_vs_noise": texture / max(noise, 1e-12)},
             )
         )
-        # distribution: 3 × 3 grid
+        # distribution: 3 × 3 grid of the whole image
+        a = whole
         h, w = a.shape
         grid = [
             [
@@ -670,6 +694,7 @@ def assess_light(
             service.set_mode(serial, mode, actor)
         a.set_budget()
         a.gain_condition()
+        a.part_area()
         exp = a.camera_state()
         if exp is not None:
             det = a.detect_flicker()

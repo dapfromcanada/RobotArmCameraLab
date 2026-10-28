@@ -90,6 +90,11 @@ class ScoringParams(_Frozen):
     noise_max: float = Field(default=0.03, gt=0, le=1)
     black_threshold: float = Field(default=0.02, ge=0, lt=1)
     roi: FractionalROI | None = None
+    #: where ``roi`` came from (set by the service, Phase 13): none, scoring.yaml / the mode
+    #: (config), the camera's part area, or a preset tag; and why the part area was not used
+    #: as drawn (partly or wholly outside the image)
+    roi_source: Literal["none", "config", "part_area", "tag"] = "none"
+    roi_note: str | None = None
 
 
 class ScoringParamsOverride(_Frozen):

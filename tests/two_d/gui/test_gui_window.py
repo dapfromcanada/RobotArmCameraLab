@@ -408,3 +408,91 @@ def test_disconnect_releases_the_camera(qtbot: QtBot, window: MainWindow) -> Non
     assert window.state_label.text() == "no camera" and not button.isEnabled()
     lock = CameraLock(SIM, "other").acquire()  # the GUI let go of the camera
     lock.release()
+
+
+def test_part_area_is_drawn_saved_and_shown_again(
+    qtbot: QtBot, gui_service: TwoDService, open_window: MainWindow
+) -> None:
+    from PySide6.QtCore import QPoint, QRect, Qt
+    from PySide6.QtTest import QTest
+
+    from camera_lab.two_d.catalog import Catalog, catalog_path
+
+    with Catalog(catalog_path()) as cat:
+        cat.upsert_camera_model("Simulated2D", vendor="camera_lab")
+    win = open_window
+    view = win.live_view
+    win.live_action.setChecked(True)
+    qtbot.waitUntil(view.has_image, timeout=30_000)
+    assert view.area_label.text().startswith("no part area")
+    qtbot.waitUntil(view.draw_area_button.isEnabled, timeout=WAIT_MS)
+    view.draw_area_button.click()
+    assert view.drawing and view.save_area_button.isVisible()
+    pixmap = view.image_label.pixmap()
+    left = (view.image_label.width() - pixmap.width()) // 2
+    top = (view.image_label.height() - pixmap.height()) // 2
+    a = QPoint(left + pixmap.width() // 4, top + pixmap.height() // 4)
+    b = QPoint(left + pixmap.width() // 2, top + pixmap.height() // 2)
+    QTest.mousePress(view.image_label, Qt.MouseButton.LeftButton, pos=a)
+    QTest.mouseMove(view.image_label, b)
+    QTest.mouseRelease(view.image_label, Qt.MouseButton.LeftButton, pos=b)
+    draft = view.draft_area()
+    assert draft is not None and "% of the image" in view.area_label.text()
+    w = gui_service.get_settings(SIM).settings.roi.width
+    assert abs(draft.x() - w // 4) <= w // 50 and abs(draft.width() - w // 4) <= w // 50
+    view.save_area_button.click()
+    qtbot.waitUntil(lambda: gui_service.part_area(SIM) is not None, timeout=WAIT_MS)
+    saved = gui_service.part_area(SIM)
+    assert saved is not None and QRect(saved.x, saved.y, saved.width, saved.height) == draft
+    qtbot.waitUntil(lambda: view.area_label.text().startswith("part area:"), timeout=WAIT_MS)
+    assert not view.drawing
+    # the dashed outline is drawn on the image, and can be switched off
+    shown = view.image_label.pixmap().toImage()
+    view.area_checkbox.setChecked(False)
+    assert view.image_label.pixmap().toImage() != shown
+    win.live_action.setChecked(False)
+    # reopen the camera: the saved area comes back from the catalog
+    win.camera_list_panel.disconnect_requested.emit()
+    qtbot.waitUntil(lambda: win.camera_id is None, timeout=WAIT_MS)
+    assert view.area_label.text().startswith("no part area")
+    open_sim(qtbot, win)
+    qtbot.waitUntil(lambda: view.area_label.text().startswith("part area:"), timeout=WAIT_MS)
+    # clear asks first; "no" keeps it
+    win._confirm = lambda title, text: False  # type: ignore[method-assign]
+    view.clear_area_button.click()
+    assert gui_service.part_area(SIM) is not None
+    win._confirm = lambda title, text: True  # type: ignore[method-assign]
+    view.clear_area_button.click()
+    qtbot.waitUntil(lambda: gui_service.part_area(SIM) is None, timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: view.area_label.text().startswith("no part area"), timeout=WAIT_MS)
+
+
+def test_load_camera_defaults_asks_then_resets_and_reads_back(
+    qtbot: QtBot, gui_service: TwoDService, open_window: MainWindow
+) -> None:
+    from camera_lab.two_d.models import CameraSettingsPatch
+
+    win = open_window
+    factory_gain = gui_service.get_settings(SIM).settings.gain_db  # a fresh sim: factory
+    gui_service.apply(SIM, CameraSettingsPatch(gain_db=factory_gain + 6.0), "human")
+    spy = Spy(gui_service, "reset_camera")
+    qtbot.waitUntil(win.reset_action.isEnabled, timeout=WAIT_MS)
+    # "no" leaves the camera as it is
+    win._confirm = lambda title, text: False  # type: ignore[method-assign]
+    win.reset_action.trigger()
+    qtbot.wait(200)
+    assert spy.calls == []
+    win._confirm = lambda title, text: True  # type: ignore[method-assign]
+    win.reset_action.trigger()
+    qtbot.waitUntil(
+        lambda: win.status_bar.currentMessage().startswith("camera defaults loaded"),
+        timeout=WAIT_MS,
+    )
+    assert len(spy.calls) == 1 and spy.calls[0][0][2] == "human"
+    assert gui_service.mode_mismatches(SIM) == []
+    assert gui_service.get_settings(SIM).settings.gain_db == factory_gain
+    assert "backup" in win.status_bar.currentMessage()
+    assert win.reset_action.isEnabled() and win.capture_action.isEnabled()
+    row = win.camera_settings_panel.row("gain_db")
+    assert row is not None
+    assert row.value_spinbox.value() == gui_service.get_settings(SIM).settings.gain_db

@@ -38,7 +38,12 @@ app.add_typer(preset_app, name="preset")
 app.add_typer(runs_app, name="runs")
 app.add_typer(profile_app, name="profile")
 app.add_typer(mode_app, name="mode")
+part_area_app = typer.Typer(
+    help="The camera's part area (drawn on the GUI's live view): scoring judges the part.",
+    no_args_is_help=True,
+)
 app.add_typer(catalog_app, name="catalog")
+app.add_typer(part_area_app, name="part-area")
 
 JsonOpt = Annotated[
     bool,
@@ -734,6 +739,36 @@ def reset_cmd(
         f"white balance {s.get('white_balance')}"
     )
     typer.echo(f"  backup before: {out['backup_before']}")
+
+
+@part_area_app.command("show")
+@handle_errors
+def part_area_show_cmd(ctx: typer.Context, camera: CameraArg) -> None:
+    """Show the camera's part area (full-sensor pixels). Draw it in the GUI's live view.
+
+    Example: camera-lab two-d part-area show triton
+    """
+    svc = state(ctx).service(ctx)
+    area = svc.part_area(camera)
+    if area is None:
+        typer.echo(f"{svc.resolve(camera)}: no part area (the whole image is scored)")
+        return
+    typer.echo(
+        f"{svc.resolve(camera)}: part area x {area.x}, y {area.y}, "
+        f"{area.width} × {area.height} px (saved {area.set_utc})"
+    )
+
+
+@part_area_app.command("clear")
+@handle_errors
+def part_area_clear_cmd(ctx: typer.Context, camera: CameraArg) -> None:
+    """Remove the camera's part area: the whole image is scored again (catalog backed up).
+
+    Example: camera-lab two-d part-area clear triton
+    """
+    svc = state(ctx).service(ctx)
+    done = svc.clear_part_area(camera, actor="human")
+    typer.echo(f"{svc.resolve(camera)}: " + ("part area cleared" if done else "had no part area"))
 
 
 @app.command("verify")

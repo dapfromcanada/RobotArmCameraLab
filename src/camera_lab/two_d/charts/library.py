@@ -17,12 +17,13 @@ from camera_lab.two_d.charts.draw import chart_drawing
 from camera_lab.two_d.charts.models import (
     PAPER_MM,
     ChartSpec,
+    FieldRole,
     PatchFeature,
     SlantedSquareFeature,
     StarFeature,
     TagSpec,
 )
-from camera_lab.two_d.charts.pdf import render_pdf
+from camera_lab.two_d.charts.pdf import render_pdf, render_pdf_pages
 
 CHARTS_DIRNAME = "charts"
 LETTER_W, _LETTER_H = PAPER_MM["letter"]
@@ -35,6 +36,31 @@ WEDGE_TOP_MM = 72.0
 STAR_SPOKES = 36
 CARD_TAG_MM = 60.0
 CARD_IDS = (120, 121, 122, 123)
+#: Field chart (Phase 10 step 7): nine landscape Letter sheets printed as one PDF.
+FIELD_SET_ID = "field-letter-v1"
+#: role → (tag id, column, row): column / row −1, 0, +1 = left / middle / right of the view
+#: (top / middle / bottom); the squares sit toward that side of the sheet.
+FIELD_ROLES: dict[FieldRole, tuple[int, int, int]] = {
+    "centre": (130, 0, 0),
+    "top-left": (131, -1, -1),
+    "top": (132, 0, -1),
+    "top-right": (133, 1, -1),
+    "right": (134, 1, 0),
+    "bottom-right": (135, 1, 1),
+    "bottom": (136, 0, 1),
+    "bottom-left": (137, -1, 1),
+    "left": (138, -1, 0),
+}
+FIELD_SQUARE_MM = 50.0
+FIELD_SQUARE_ANGLE = 5.0
+FIELD_SQUARE_PITCH_MM = 65.0  # centre to centre of the two squares
+FIELD_SQUARE_INSET_MM = 42.0  # paper edge to the outer square's centre (~15 mm clear)
+FIELD_SQUARE_LOW_Y_MM = 140.0  # bottom-row sheets: square centres, clear of the footer
+FIELD_STEPS = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)
+FIELD_STEP_MM = 18.0
+FIELD_GAP_MM = 15.0
+_BOARD = {-1: "LEFT", 0: "CENTRE", 1: "RIGHT"}
+_SLOT = {-1: "top", 0: "middle", 1: "bottom"}
 
 
 def charts_dir() -> Path:
@@ -207,9 +233,89 @@ def _tag_card() -> ChartSpec:
     )
 
 
+def _field(role: FieldRole) -> ChartSpec:
+    """One field-chart sheet: two slanted squares toward the outside of the camera view, the
+    tag and a 6-step grey strip on the inner side, the role in large print."""
+    tag_id, col, row = FIELD_ROLES[role]
+    w, _h = PAPER_MM["letter-landscape"]
+    half = FIELD_SQUARE_PITCH_MM / 2
+    sq_x = {
+        -1: (FIELD_SQUARE_INSET_MM, FIELD_SQUARE_INSET_MM + FIELD_SQUARE_PITCH_MM),
+        0: (w / 2 - half, w / 2 + half),
+        1: (w - FIELD_SQUARE_INSET_MM - FIELD_SQUARE_PITCH_MM, w - FIELD_SQUARE_INSET_MM),
+    }[col]
+    low = row == 1
+    sq_y = FIELD_SQUARE_LOW_Y_MM if low else FIELD_SQUARE_INSET_MM
+    tag_y = 20.0 if low else 85.0
+    tag_x = w - TAG_XY - TAG_MM if col == -1 else TAG_XY
+    strip_w = len(FIELD_STEPS) * FIELD_STEP_MM
+    strip_x = tag_x - FIELD_GAP_MM - strip_w if col == -1 else tag_x + TAG_MM + FIELD_GAP_MM
+    squares = tuple(
+        SlantedSquareFeature(
+            name=f"edge-{i + 1}",
+            cx_mm=round(x, 3),
+            cy_mm=sq_y,
+            size_mm=FIELD_SQUARE_MM,
+            angle_deg=FIELD_SQUARE_ANGLE,
+        )
+        for i, x in enumerate(sq_x)
+    )
+    steps = tuple(
+        PatchFeature(
+            name=f"step-{i + 1}",
+            x_mm=round(strip_x + i * FIELD_STEP_MM, 3),
+            y_mm=tag_y,
+            w_mm=FIELD_STEP_MM,
+            h_mm=FIELD_STEP_MM,
+            grey=g,
+        )
+        for i, g in enumerate(FIELD_STEPS)
+    )
+    notes = [
+        f"{_BOARD[col]} board, {_SLOT[row]} sheet. The squares point to the outside of the "
+        "camera view.",
+        "Glue flat (spray adhesive, no tape). All boards in one plane, facing the camera, "
+        "against one straight rail. Every tag in view.",
+    ]
+    if role == "centre":
+        notes += [
+            "Boards, left to right: LEFT (top-left, left, bottom-left), CENTRE (top, centre, "
+            "bottom), RIGHT (top-right, right, bottom-right).",
+            "Distance and spacing of the boards for a camera + lens: "
+            "camera-lab charts field-plan <camera> --distance-mm N",
+        ]
+    return ChartSpec(
+        id=f"field-{role}-letter-v1",
+        type="field",
+        version=1,
+        title=f"Field chart sheet: {role.upper()} ({FIELD_SET_ID})",
+        paper="letter-landscape",
+        role=role,
+        tags=(TagSpec(id=tag_id, x_mm=tag_x, y_mm=tag_y, size_mm=TAG_MM),),
+        features=(*squares, *steps),
+        notes=tuple(notes),
+    )
+
+
+def field_charts() -> list[ChartSpec]:
+    """The nine sheets of the field chart, centre first."""
+    return [_field(role) for role in FIELD_ROLES]
+
+
 def builtin_charts() -> list[ChartSpec]:
-    """The first Letter charts (Phase 10 step 1)."""
-    return [_step_wedge(), _resolution(), _grey_patch(), _tag_card()]
+    """The first Letter charts (Phase 10 step 1) and the field chart sheets (step 7)."""
+    return [_step_wedge(), _resolution(), _grey_patch(), _tag_card(), *field_charts()]
+
+
+def write_field_pdf(sheets: list[ChartSpec], out: Path | None = None) -> Path:
+    """All field-chart sheets in one PDF (default ``APP/docs/charts/field-letter-v1.pdf``)."""
+    path = out if out is not None else safe_join(pdf_dir(), f"{FIELD_SET_ID}.pdf")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    order = list(FIELD_ROLES)
+    sheets = sorted(sheets, key=lambda c: order.index(c.role) if c.role in order else len(order))
+    pages = [(chart_drawing(s), s.page_mm) for s in sheets]
+    path.write_bytes(render_pdf_pages(pages, f"Field chart, nine sheets ({FIELD_SET_ID})"))
+    return path
 
 
 def init_builtin(root: Path | None = None) -> list[Path]:

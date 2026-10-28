@@ -43,3 +43,7 @@ design_mode: raw
 sensor:
   shutter: global
   colour: mono
+  pixels:
+  - 4096
+  - 2160
+  pixel_um: 3.45

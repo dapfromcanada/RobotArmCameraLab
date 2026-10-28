@@ -30,6 +30,9 @@ class _Sheet(BaseModel):
 class SheetSensor(_Sheet):
     shutter: Literal["rolling", "global", "unknown"] = "unknown"
     colour: str = "unknown"
+    #: full-frame width, height in px and the pixel pitch (the field chart plan needs them)
+    pixels: tuple[int, int] | None = None
+    pixel_um: float | None = Field(default=None, gt=0, le=100)
 
 
 class SheetTiming(_Sheet):

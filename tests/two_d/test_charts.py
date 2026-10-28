@@ -21,16 +21,26 @@ from camera_lab.two_d.charts import (
     TAG_ID_MAX,
     TAG_ID_MIN,
     builtin_charts,
+    field_charts,
     init_builtin,
     list_charts,
     load_chart,
     make_pdf,
     tag_owner,
 )
+from camera_lab.two_d.charts.detect import charts_from_tags, detect_tags
 from camera_lab.two_d.charts.draw import SCALE_BAR_MM, Rect, Text, chart_drawing, rasterize
-from camera_lab.two_d.charts.models import ChartSpec, PatchFeature, TagSpec
+from camera_lab.two_d.charts.models import (
+    PAPER_MM,
+    ChartSpec,
+    PatchFeature,
+    SlantedSquareFeature,
+    TagSpec,
+)
 from camera_lab.two_d.charts.pdf import PT_PER_MM, render_pdf
+from camera_lab.two_d.charts.scores import score_resolution
 
+PAGE_LANDSCAPE = PAPER_MM["letter-landscape"]
 PX_PER_MM = 4.0
 runner = CliRunner()
 
@@ -79,6 +89,7 @@ def test_builtin_charts_are_valid_and_tags_unique() -> None:
         "resolution-letter-v1",
         "grey-patch-letter-v1",
         "tag-card-letter-v1",
+        *(c.id for c in field_charts()),
     ]
     ids = [t.id for c in charts for t in c.tags]
     assert len(ids) == len(set(ids))
@@ -154,14 +165,14 @@ def test_invalid_specs_rejected(change: dict[str, Any], message: str) -> None:
 # ----------------------------------------------------------------- library
 def test_init_list_load(tmp_path: Path) -> None:
     written = init_builtin(tmp_path)
-    assert len(written) == 4
+    assert len(written) == 4 + 9  # + the nine field-chart sheets
     assert init_builtin(tmp_path) == []  # never overwrites
     charts = list_charts(tmp_path)
     assert [c.id for c in charts] == sorted(c.id for c in builtin_charts())
     assert load_chart("resolution-letter-v1", tmp_path) == next(
         c for c in builtin_charts() if c.id == "resolution-letter-v1"
     )
-    assert set(tag_owner(tmp_path)) == {100, 101, 102, 120, 121, 122, 123}
+    assert set(tag_owner(tmp_path)) == {100, 101, 102, 120, 121, 122, 123, *range(130, 139)}
 
 
 def test_library_errors(tmp_path: Path) -> None:
@@ -253,7 +264,8 @@ def test_pdf_renders_with_poppler_and_tags_detect(tmp_path: Path) -> None:
             timeout=60,
         )
         img = cv2.imread(str(tmp_path / f"{chart.id}.png"), cv2.IMREAD_GRAYSCALE)
-        assert img.shape == (1100, 850)  # 11 x 8.5 in at 100 dpi
+        w_mm, h_mm = chart.page_mm  # Letter: 11 x 8.5 in at 100 dpi, portrait or landscape
+        assert img.shape == (round(h_mm / 25.4 * dpi), round(w_mm / 25.4 * dpi))
         found = _detect(img)
         assert set(found) == {t.id for t in chart.tags}
         for t in chart.tags:
@@ -292,3 +304,55 @@ def test_cli_bad_requests_exit_2(args: list[str]) -> None:
 def test_tagspec_quiet_box() -> None:
     t = TagSpec(id=100, x_mm=16, y_mm=16, size_mm=40)
     assert t.quiet_box() == (11.0, 11.0, 61.0, 61.0)
+
+
+# ------------------------------------------------------------- field chart
+def test_field_chart_has_nine_sheets_with_squares_toward_the_outside() -> None:
+    sheets = field_charts()
+    assert sheets[0].role == "centre" and len(sheets) == 9
+    assert sorted(t.id for c in sheets for t in c.tags) == list(range(130, 139))
+    w, h = PAGE_LANDSCAPE
+    for c in sheets:
+        assert c.type == "field" and c.paper == "letter-landscape" and c.page_mm == (w, h)
+        squares = [f for f in c.features if isinstance(f, SlantedSquareFeature)]
+        steps = [f for f in c.features if isinstance(f, PatchFeature)]
+        assert len(squares) == 2 and len(steps) == 6
+        cx = sum(f.cx_mm for f in squares) / 2
+        cy = sum(f.cy_mm for f in squares) / 2
+        role = c.role or ""
+        if "left" in role:
+            assert cx < w / 3
+        elif "right" in role:
+            assert cx > 2 * w / 3
+        else:
+            assert w / 3 < cx < 2 * w / 3
+        assert (cy > h / 2) == role.startswith("bottom")
+
+
+def test_field_role_is_required_for_field_sheets_only() -> None:
+    sheet = field_charts()[0].model_dump()
+    with pytest.raises(ValidationError, match="needs a role"):
+        ChartSpec.model_validate({**sheet, "role": None})
+    with pytest.raises(ValidationError, match="needs a role"):
+        ChartSpec.model_validate({**_spec(), "role": "centre"})
+
+
+def test_field_pdf_is_one_file_of_nine_landscape_pages(tmp_path: Path) -> None:
+    out = tmp_path / "field.pdf"
+    res = runner.invoke(app, ["charts", "make", "field-letter-v1", "--out", str(out)])
+    assert res.exit_code == 0, res.output
+    pdf = out.read_bytes()
+    assert b"/Count 9" in pdf and pdf.count(b"/Type /Page ") == 9
+    assert pdf.count(b"/MediaBox [0 0 792 612]") == 9
+    for c in field_charts():
+        assert c.role is not None and c.role.upper().encode() in pdf
+
+
+def test_field_sheet_tag_detects_and_all_edges_measure() -> None:
+    sheet = field_charts()[1]  # top-left
+    page = cv2.GaussianBlur(rasterize(sheet, 4.0), (0, 0), 1.0)
+    found = _detect(page)
+    assert set(found) == {sheet.tags[0].id}
+    [det] = charts_from_tags(detect_tags(page), {sheet.tags[0].id: sheet}).charts
+    r = score_resolution(page / 255.0, det, sheet)
+    assert r["edges_measured"] == 8

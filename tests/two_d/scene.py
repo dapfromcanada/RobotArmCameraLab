@@ -18,7 +18,8 @@ PX = 2.5
 
 def _page() -> np.ndarray:
     """Step wedge | grey patch | resolution, side by side (0–1 reflectance-like)."""
-    pages = [rasterize(c, PX) for c in builtin_charts() if c.type != "tag_card"]
+    keep = ("step_wedge", "grey_patch", "resolution")
+    pages = [rasterize(c, PX) for c in builtin_charts() if c.type in keep]
     h = max(p.shape[0] for p in pages)
     gap = np.ones((h, 30), np.uint8) * 255
     row = []

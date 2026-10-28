@@ -20,6 +20,7 @@ Derek's principles (they decide every design question):
 - **Lenses** are picked from the catalog list in the fingerprint window; "Add a lens" (name, focal length, mount, marked stops picked from the standard list) is the only data entry. Fully open = transmission 1.0 by definition.
 - **Focus tool** (`two_d/focus.py`, GUI "Focus..."): live MTF50 per plane, a best value that resets when the chart moves, warnings.
 - **Slanted-edge scorer** (`two_d/charts/scores.py`, fixed 2026-10-28): each square is found in the image (`square_corners`; the chart's one tag only says where to look) and each edge is located roughly, then precisely in a narrow band with the background gradient removed, fitted with a degree-2 curve. Each edge records `placed_by` (square / tag). The old scorer read 22 % low at 3.5 px/mm and 61 % low at 9.8 px/mm on noisy frames: MTF50 values from before 2026-10-28 (JAI chart tests, setup baselines) are too low. Setup, fingerprint, focus and Disconnect exclude each other in the GUI.
+- **Field chart** (Phase 10 step 7, `two_d/charts/field.py`, 2026-10-28): nine landscape Letter sheets (tags 130–138, `config/charts/field-<role>-letter-v1.yaml`, one PDF `docs/charts/field-letter-v1.pdf`) glued on three column boards (left / centre / right) in one plane. One image gives per sheet: position (`r` 0 centre … 1 corner), MTF50 sagittal / tangential (H / V at the centre), light and colour shading vs the centre sheet, edge bow, colour fringing (red / blue edge vs green, px outward, from tangential edges); summary: centre, corners, corner spread, softer side, astigmatism. Captures add a `field_map` record (`chart_id` field-letter-v1); `charts field <tiff>` prints the 3 × 3 map; `charts field-plan --model M --lens L` gives the distance and board spacing from the model paper's `sensor.pixels` / `sensor.pixel_um` and the lens focal length (mono + Computar: ~76 cm, side boards ±50 cm). The Focus tool focuses on the centre sheet when no resolution sheet is in view and shows the worst corner and the softer side. Not printed or tried on the bench yet.
 - **GUI messages** are also written to `WS/data/raw_recordings/camera_lab/two_d/gui_messages.log`.
 
 ### Cameras on the bench
@@ -42,7 +43,8 @@ Derek's principles (they decide every design question):
 - TRI089S-M camera paper: prose sections not written.
 - Lens format / pixel-rating fields and mismatch warnings; corner sharpness.
 - The setup procedure still uses its own focus measurement (not the Focus tool).
-- Corner sharpness of the mono + Computar at f/5.6 (next bench test).
+- Field chart on the bench: print, mount, first map of the mono + Computar at f/5.6 (spec step 7 done-when); then decide with Derek on a fingerprint row and a sharpness map in the white papers.
+- Field chart: `field-plan` reads the sensor from the model paper (spec said live from the camera): only the TRI089S-M and the AP-3200T-PGE have `sensor.pixels` / `pixel_um` so far.
 - Re-record the setup focus baselines in `WS/config/camera_setup/` (233100505, U330439): made with the old scorer, so the 10 % drop check is too lenient. Repeat the JAI chart tests with the fixed scorer.
 - Possible camera-lock gap between the GUI and a second process.
 - Phase 10 step 6 (bench guidance) not started; 3D and laser groups later.

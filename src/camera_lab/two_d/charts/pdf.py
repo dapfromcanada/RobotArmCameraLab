@@ -51,17 +51,31 @@ def _content(shapes: list[Shape], page_h_mm: float) -> bytes:
 
 def render_pdf(shapes: list[Shape], page_mm: tuple[float, float], title: str) -> bytes:
     """Return a one-page PDF of ``shapes`` on a page of ``page_mm`` (w, h)."""
-    w_mm, h_mm = page_mm
-    content = _content(shapes, h_mm)
+    return render_pdf_pages([(shapes, page_mm)], title)
+
+
+def render_pdf_pages(pages: list[tuple[list[Shape], tuple[float, float]]], title: str) -> bytes:
+    """Return a PDF with one page per ``(shapes, page_mm)``."""
+    n = len(pages)
+    font = 3 + 2 * n  # objects: catalog, pages, (page, content) per page, font, info
+    kids = " ".join(f"{3 + 2 * i} 0 R" for i in range(n))
     objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        (
-            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {_num(w_mm * PT_PER_MM)} "
-            f"{_num(h_mm * PT_PER_MM)}] /Resources << /Font << /F1 5 0 R >> >> "
-            f"/Contents 4 0 R >>"
-        ).encode(),
-        b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"endstream",
+        f"<< /Type /Pages /Kids [{kids}] /Count {n} >>".encode(),
+    ]
+    for i, (shapes, (w_mm, h_mm)) in enumerate(pages):
+        content = _content(shapes, h_mm)
+        objects.append(
+            (
+                f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {_num(w_mm * PT_PER_MM)} "
+                f"{_num(h_mm * PT_PER_MM)}] /Resources << /Font << /F1 {font} 0 R >> >> "
+                f"/Contents {4 + 2 * i} 0 R >>"
+            ).encode()
+        )
+        objects.append(
+            b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"endstream"
+        )
+    objects += [
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
         b"<< /Title (" + _escape(title) + b") /Producer (camera_lab) >>",
     ]

@@ -21,6 +21,7 @@ from camera_lab.two_d.charts.detect import (
     charts_from_tags,
     detect_tags,
 )
+from camera_lab.two_d.charts.field import CORNERS, SIDES, SOFTER_SIDE
 from camera_lab.two_d.charts.library import tag_owner
 from camera_lab.two_d.charts.models import ChartSpec, SlantedSquareFeature
 from camera_lab.two_d.charts.scores import _edge_mtf, square_corners
@@ -62,6 +63,11 @@ class FocusReading:
     hint: str = ""  # what to do with the focus ring now
     lp_mm: float | None = None  # main plane, line pairs per mm on the chart
     planes: tuple[str, ...] = field(default=())
+    #: field chart in view (Phase 10 step 7): MTF50 per sheet role (main plane), the worst
+    #: corner and the softer side (a tilted lens or sensor), focus on the centre sheet
+    field_mtf50: dict[str, float | None] = field(default_factory=dict)
+    corner_worst: tuple[str, float] | None = None
+    softer_side: str | None = None
 
     @property
     def best_main(self) -> float | None:
@@ -110,7 +116,7 @@ class FocusMeter:
                 f"the light is {light / self._ref_light:.2f}× what it was at the start "
                 "(iris closed? lights moved or shaded?)"
             )
-        spec, det = self._resolution(frame)
+        spec, det, field_sheets = self._resolution(frame)
         base = dict(
             highlights=round(highlights, 3),
             clipped_pct=round(clipped, 3),
@@ -127,9 +133,10 @@ class FocusMeter:
                 px_per_mm=None,
                 warnings=(
                     *warnings,
-                    "no resolution chart in view: the tag at its top left must be visible",
+                    "no resolution chart in view: the tag at its top left must be visible "
+                    "(or the field chart's centre sheet)",
                 ),
-                hint="put the resolution chart in view",
+                hint="put the resolution chart (or the field chart) in view",
                 **base,  # type: ignore[arg-type]
             )
         squares = [f for f in spec.features if isinstance(f, SlantedSquareFeature)]
@@ -164,6 +171,9 @@ class FocusMeter:
                 self._best[name] = v
         main = mtf[main_key]
         best = self._best.get(main_key)
+        field_mtf, worst, softer = self._field(main_plane, field_sheets)
+        if main is not None and field_mtf:
+            field_mtf["centre"] = main
         if main is None:
             hint = "no sharp edge found: turn the focus ring slowly"
         elif best is not None and main < PAST_PEAK * best:
@@ -183,17 +193,59 @@ class FocusMeter:
             hint=hint,
             lp_mm=lp[main_key],
             planes=tuple(planes),
+            field_mtf50=field_mtf,
+            corner_worst=worst,
+            softer_side=softer,
             **base,
         )
 
-    def _resolution(self, frame: Frame) -> tuple[ChartSpec | None, ChartDetection | None]:
+    @staticmethod
+    def _field(
+        plane: npt.NDArray[np.float64], sheets: list[tuple[ChartSpec, ChartDetection]]
+    ) -> tuple[dict[str, float | None], tuple[str, float] | None, str | None]:
+        """MTF50 of each field sheet other than the centre, the worst corner, the softer
+        side."""
+        values: dict[str, float | None] = {}
+        for spec, det in sheets:
+            if spec.role in (None, "centre"):
+                continue
+            squares = [f for f in spec.features if isinstance(f, SlantedSquareFeature)]
+            edges = [
+                _edge_mtf(plane, det, f, k, square_corners(plane, det, f))
+                for f in squares
+                for k in range(4)
+            ]
+            ok = [e["mtf50_cyc_px"] for e in edges if e.get("mtf50_cyc_px") is not None]
+            values[str(spec.role)] = round(float(median(ok)), 4) if ok else None
+        corners = {k: v for k, v in values.items() if k in CORNERS and v is not None}
+        worst = min(corners.items(), key=lambda kv: kv[1]) if corners else None
+        sides = {}
+        for side, roles in SIDES.items():
+            vals = [values[r] for r in roles if values.get(r) is not None]
+            sides[side] = sum(vals) / len(vals) if vals else None  # type: ignore[arg-type]
+        softer = []
+        for a, b in (("left", "right"), ("top", "bottom")):
+            va, vb = sides[a], sides[b]
+            if va and vb and abs(va - vb) / ((va + vb) / 2) > SOFTER_SIDE:
+                softer.append(a if va < vb else b)
+        return values, worst, ", ".join(softer) or None
+
+    def _resolution(
+        self, frame: Frame
+    ) -> tuple[ChartSpec | None, ChartDetection | None, list[tuple[ChartSpec, ChartDetection]]]:
+        """The chart to focus on (the resolution chart, else the field chart's centre
+        sheet) and the field-chart sheets in view."""
         scan = charts_from_tags(detect_tags(frame.data, frame.pixel_format), self._library)
         by_id = {c.id: c for c in self._library.values()}
-        for det in scan.charts:
-            spec = by_id.get(det.chart_id)
-            if spec is not None and spec.type == "resolution":
-                return spec, det
-        return None, None
+        found = [(by_id[d.chart_id], d) for d in scan.charts if d.chart_id in by_id]
+        field_sheets = [(s, d) for s, d in found if s.type == "field"]
+        for s, d in found:
+            if s.type == "resolution":
+                return s, d, field_sheets
+        for s, d in field_sheets:
+            if s.role == "centre":
+                return s, d, field_sheets
+        return None, None, field_sheets
 
     def _moved(self, x: float, y: float, scale: float, width: int) -> bool:
         """True when the chart moved since the reference (the best then starts again)."""

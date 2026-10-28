@@ -59,8 +59,11 @@ def test_flat_render_gives_the_chart_and_its_scale(
     det = scan.charts[0]
     assert det.version == chart.version and det.type == chart.type
     assert det.px_per_mm == pytest.approx(PX, rel=0.01)
-    hom = np.array(det.homography).reshape(3, 3)
-    assert hom == pytest.approx(np.diag([PX, PX, 1.0]), abs=0.05 * PX)
+    # the tag's own corners land where the page says (a single tag far from the page origin
+    # extrapolates its small scale error to the origin, so compare at the tag)
+    for t in chart.tags:
+        mm = [(t.x_mm, t.y_mm), (t.x_mm + t.size_mm, t.y_mm + t.size_mm)]
+        assert chart_to_image(det, mm) == pytest.approx(np.array(mm) * PX, abs=0.05 * PX)
     assert scan.unknown_tags == ()
 
 

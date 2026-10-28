@@ -28,9 +28,25 @@ TAG_ID_MAX = 199
 TAG_CELLS = 8
 
 #: Paper sizes in mm (width, height).
-PAPER_MM: dict[str, tuple[float, float]] = {"letter": (215.9, 279.4)}
+PAPER_MM: dict[str, tuple[float, float]] = {
+    "letter": (215.9, 279.4),
+    "letter-landscape": (279.4, 215.9),
+}
+Paper = Literal["letter", "letter-landscape"]
 
-ChartType = Literal["step_wedge", "resolution", "grey_patch", "tag_card"]
+ChartType = Literal["step_wedge", "resolution", "grey_patch", "tag_card", "field"]
+#: Where a field-chart sheet goes in the camera view (Phase 10 step 7).
+FieldRole = Literal[
+    "centre",
+    "top-left",
+    "top",
+    "top-right",
+    "right",
+    "bottom-right",
+    "bottom",
+    "bottom-left",
+    "left",
+]
 
 
 class _Frozen(BaseModel):
@@ -139,7 +155,9 @@ class ChartSpec(_Frozen):
     type: ChartType
     version: Annotated[int, Field(ge=1, le=999)]
     title: Annotated[str, Field(min_length=1, max_length=80)]
-    paper: Literal["letter"] = "letter"
+    paper: Paper = "letter"
+    #: Field-chart sheets only: where the sheet goes in the camera view.
+    role: FieldRole | None = None
     tags: tuple[TagSpec, ...] = Field(min_length=1, max_length=16)
     features: tuple[Feature, ...] = ()
     notes: tuple[Annotated[str, Field(max_length=300)], ...] = ()
@@ -157,6 +175,8 @@ class ChartSpec(_Frozen):
 
     @model_validator(mode="after")
     def _geometry(self) -> ChartSpec:
+        if (self.role is None) != (self.type != "field"):
+            raise ValueError("a field-chart sheet needs a role; other charts have none")
         w, h = self.page_mm
         ids = [t.id for t in self.tags]
         if len(set(ids)) != len(ids):

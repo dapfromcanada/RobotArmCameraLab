@@ -55,6 +55,9 @@ SEPARATION_SIGMA = 2.0
 #: Slanted edge: ROI length along the edge (fraction of the side) and half width (mm).
 EDGE_ROI_LEN_FRAC = 0.6
 EDGE_ROI_HALF_WIDTH_MM = 6.0
+#: ...but never narrower than this across (px each side): a small chart in the image
+#: (~2 px/mm) with a soft lens needs room for the blur on both sides.
+EDGE_ROI_MIN_HALF_PX = 16.0
 EDGE_MIN_ROWS = 20
 EDGE_MIN_HALF_WIDTH_PX = 8
 EDGE_MIN_ANGLE_DEG = 1.0
@@ -307,10 +310,11 @@ def _edge_mtf(
         d = (p1 - p0) / side
         n = np.array([-d[1], d[0]])
         hl = EDGE_ROI_LEN_FRAC / 2 * side
-        hw = EDGE_ROI_HALF_WIDTH_MM / sq.size_mm * side
+        hw = max(EDGE_ROI_HALF_WIDTH_MM / sq.size_mm * side, EDGE_ROI_MIN_HALF_PX)
         pm, pd = mid, mid + d
     else:
-        hl, hw = EDGE_ROI_LEN_FRAC / 2 * sq.size_mm, EDGE_ROI_HALF_WIDTH_MM
+        hl = EDGE_ROI_LEN_FRAC / 2 * sq.size_mm
+        hw = max(EDGE_ROI_HALF_WIDTH_MM, EDGE_ROI_MIN_HALF_PX / max(scale, 1e-9))
     quad = [
         mid - d * hl - n * hw,
         mid + d * hl - n * hw,
@@ -387,6 +391,29 @@ def _edge_mtf(
         "mtf_nyquist": _r(float(np.interp(0.5, freqs, mtf)), 4),
         "contrast": _r(light - dark, 4),
         "clipped": bool(light >= CLIP_LEVEL),
+        **_edge_geometry(edge, rows, x0, y0, horizontal),
+    }
+
+
+def _edge_geometry(
+    edge: npt.NDArray[np.float64], rows: int, x0: int, y0: int, horizontal: bool
+) -> dict[str, Any]:
+    """Where the edge is in the image: its point at the middle row (sub-pixel, image px), its
+    direction (unit vector, image px) and its bow (px over the measured length; lens
+    distortion bends straight edges away from the image centre)."""
+    rm = (rows - 1) / 2
+    col = float(np.polyval(edge, rm))  # the gradient centroid: between pixel centres
+    slope = float(np.polyval(np.polyder(edge), rm))
+    norm = math.hypot(1.0, slope)
+    if horizontal:  # the region was transposed: rows run along x
+        mid, direction = (x0 + rm, y0 + col), (1.0 / norm, slope / norm)
+    else:
+        mid, direction = (x0 + col, y0 + rm), (slope / norm, 1.0 / norm)
+    bow = float(edge[0]) * (rows / 2) ** 2 if len(edge) == 3 else 0.0
+    return {
+        "mid_px": [_r(mid[0], 3), _r(mid[1], 3)],
+        "dir": [_r(direction[0], 5), _r(direction[1], 5)],
+        "bow_px": _r(bow, 3),
     }
 
 
@@ -429,6 +456,10 @@ def score_chart(
     data: npt.NDArray[Any], pixel_format: str, bit_depth: int, det: ChartDetection, spec: ChartSpec
 ) -> dict[str, Any] | None:
     """Scores of one detected chart (None for chart types without scores, e.g. tag cards)."""
+    if spec.type == "field":  # lazy: the field module builds on this one
+        from camera_lab.two_d.charts.field import score_field_sheet
+
+        return score_field_sheet(_linear_image(data, pixel_format, bit_depth), det, spec)
     scorer = SCORERS.get(spec.type)
     if scorer is None:
         return None
@@ -446,7 +477,10 @@ def chart_records_array(
         scores = score_chart(data, pixel_format, bit_depth, det, by_id[det.chart_id])
         if scores is not None:
             rec["scores"] = scores
-    return records
+    from camera_lab.two_d.charts.field import field_record  # lazy: builds on this module
+
+    fmap = field_record(records)
+    return [*records, fmap] if fmap is not None else records
 
 
 def chart_records(frame: Frame, library: Mapping[int, ChartSpec]) -> list[dict[str, Any]]:

@@ -80,6 +80,9 @@ camera-lab limits show                            # limits: lights, rates, prote
 camera-lab charts list                            # test-chart library (config/charts/)
 camera-lab charts make --all                      # printable PDFs → docs/charts/ (print at 100 %)
 camera-lab charts score <image.tiff>              # find + score charts in a saved capture
+camera-lab charts make field-letter-v1            # the field chart: 9 landscape sheets in one PDF
+camera-lab charts field-plan --model TRI089S-M --lens computar_f_1_2_8_1_1_c   # board distance + spacing
+camera-lab charts field <image.tiff>              # whole-image sharpness / light / colour map
 camera-lab gui                                    # desktop GUI
 camera-lab mcp                                    # MCP server on stdio
 ```
@@ -127,7 +130,7 @@ Dark mode. Left: camera list. Centre: live view (clipped-pixel overlay) and hist
 - Presets: `WS/config/camera_presets/` (the old file is kept as `.bak-<timestamp>` on overwrite)
 - Safety limits / lights / scoring / aliases / profiles: `config/` (read at start-up; edit and restart)
 - Calibration: `WS/calibration/` — read only; camera_lab warns when a change may invalidate it
-- Test charts: `config/charts/<chart_id>.yaml` (library; AprilTag 36h11 ids 100–199), PDFs in `docs/charts/`
+- Test charts: `config/charts/<chart_id>.yaml` (library; AprilTag 36h11 ids 100–199; field chart sheets 130–138), PDFs in `docs/charts/`
 - Camera node-map dumps: `docs/cameras/`. Bench findings: `docs/experiments/`. Spec: `spec/` (read-only). Context for agents: `CONTEXT.md`
 
 ## Tests

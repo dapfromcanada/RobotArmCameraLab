@@ -39,6 +39,12 @@ TITLE_PT = 11.0
 BODY_PT = 8.0
 TAG_LABEL_PT = 8.0
 TAG_LABEL_GAP_MM = 5.0
+#: Field-chart sheets: the role in large print and the placement notes.
+ROLE_PT = 26.0
+ROLE_GAP_MM = 13.0
+NOTES_GAP_MM = 15.0
+NOTE_STEP_MM = 5.0
+STRIP_FRAME_MM = 0.3
 #: Points per Siemens-star wedge arc (smoothness of the outer edge).
 STAR_ARC_POINTS = 8
 #: rasterize(): supersampling factor (≤ 8) and the finest grid it may use.
@@ -152,8 +158,42 @@ def chart_drawing(spec: ChartSpec) -> list[Shape]:
             shapes.extend(_star_shapes(f))
     for t in spec.tags:
         shapes.extend(_tag_shapes(t))
+    if spec.role is not None:
+        shapes.extend(_field_text(spec))
     shapes.extend(_footer(spec))
     return shapes
+
+
+def _field_text(spec: ChartSpec) -> list[Shape]:
+    """A field-chart sheet's role in large print under its grey strip, and its placement
+    notes under its tag."""
+    strip = [f for f in spec.features if isinstance(f, PatchFeature)]
+    tag = spec.tags[0]
+    out: list[Shape] = []
+    if strip:  # thin frame, so the paper-white step shows on the print
+        x0, y0 = strip[0].x_mm - STRIP_FRAME_MM, strip[0].y_mm - STRIP_FRAME_MM
+        x1 = strip[-1].x_mm + strip[-1].w_mm
+        y1 = strip[0].y_mm + strip[0].h_mm
+        out += [
+            Rect(x0, y0, x1 - x0 + STRIP_FRAME_MM, STRIP_FRAME_MM, 0.0),
+            Rect(x0, y1, x1 - x0 + STRIP_FRAME_MM, STRIP_FRAME_MM, 0.0),
+            Rect(x0, y0, STRIP_FRAME_MM, y1 - y0, 0.0),
+            Rect(x1, y0, STRIP_FRAME_MM, y1 - y0, 0.0),
+        ]
+    if strip and spec.role is not None:
+        out.append(
+            Text(
+                strip[0].x_mm,
+                strip[0].y_mm + strip[0].h_mm + ROLE_GAP_MM,
+                ROLE_PT,
+                spec.role.upper(),
+            )
+        )
+    y = tag.y_mm + tag.size_mm + NOTES_GAP_MM
+    for note in spec.notes:
+        out.append(Text(MARGIN_MM, y, BODY_PT, note))
+        y += NOTE_STEP_MM
+    return out
 
 
 def rasterize(spec: ChartSpec, px_per_mm: float) -> npt.NDArray[np.uint8]:

@@ -3,6 +3,7 @@
 from camera_lab.two_d.charts.library import (
     builtin_charts,
     charts_dir,
+    field_charts,
     init_builtin,
     list_charts,
     load_chart,
@@ -19,6 +20,7 @@ __all__ = [
     "ChartSpec",
     "builtin_charts",
     "charts_dir",
+    "field_charts",
     "init_builtin",
     "list_charts",
     "load_chart",

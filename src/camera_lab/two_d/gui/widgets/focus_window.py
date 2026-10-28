@@ -66,6 +66,11 @@ def info_text(reading: FocusReading) -> str:
             out.append(f"chart {reading.px_per_mm:.2f} px/mm")
         if reading.lp_mm is not None:
             out.append(f"{reading.lp_mm:.2f} line pairs/mm on the chart")
+        if reading.corner_worst is not None:
+            role, value = reading.corner_worst
+            out.append(f"worst corner {role} {value:.3f}")
+        if reading.field_mtf50:
+            out.append(f"softer side: {reading.softer_side or 'none'}")
     return " · ".join(out)
 
 

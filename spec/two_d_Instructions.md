@@ -59,7 +59,7 @@ All of these must be demonstrable at the final gate:
 9. `ruff check`, `ruff format --check`, `mypy src` and `pip-audit` report no errors and no high/critical findings.
 
 ## ⭐ Explicit non-goals / out of scope:
-- **Calibration of any kind**: intrinsics, extrinsics, hand-eye, calibration board design or generation, and board detection. These will be a **separate app** later (several board types and sizes will be needed). This module only **reads** `WS/calibration/` and warns when a setting change may invalidate an existing calibration. *Exception (Derek, 2026-10-21, Phase 10):* camera_lab generates and detects its own **image-quality test charts** (step wedge, resolution, grey patch, tag cards), identified by AprilTag 36h11 ids 100–199. These are not calibration boards.
+- **Calibration of any kind**: intrinsics, extrinsics, hand-eye, calibration board design or generation, and board detection. These will be a **separate app** later (several board types and sizes will be needed). This module only **reads** `WS/calibration/` and warns when a setting change may invalidate an existing calibration. *Exception (Derek, 2026-10-21, Phase 10):* camera_lab generates and detects its own **image-quality test charts** (step wedge, resolution, grey patch, tag cards, field sheets), identified by AprilTag 36h11 ids 100–199. These are not calibration boards.
 - 3D / depth data (`three_d`), laser profilers (`laser`), grasp planning, robot control.
 - ROS / ROS 2. Do not import `rclpy`; ROS runs on system Python 3.14 and cannot be used from this env. A ROS wrapper may come later.
 - Real LED hardware drivers. The hardware is not built yet. Ship only the interface + simulated light (see deferred features).

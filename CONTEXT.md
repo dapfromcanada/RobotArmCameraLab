@@ -147,6 +147,7 @@ These files are large; several exceed 100,000 tokens. **Never read one whole.**
 - Do not touch a camera while the GUI holds it: ask Derek to Disconnect first.
 - Protected camera features (UserSetSave, UserSetDefault, DeviceReset) need explicit confirmation; the fingerprint's checklist ticks count.
 - Changes to `spec/` need Derek's approval. New or changed MCP tools are reviewed by Derek.
+- **Own git repo** (since 2026-10-29): `APP/.git`, branch `main`, remote `origin` = https://github.com/dapfromcanada/RobotArmCameraLab.git (history kept from the workspace repo, which now ignores `apps/camera_lab/`). Run git from `APP`. This machine has no GitHub login for git: Derek runs `git push`.
 - Do not commit or push unless Derek asks. Never commit runtime data (catalog, backups, fingerprints, recordings).
 
 ## Maintenance

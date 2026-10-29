@@ -16,6 +16,8 @@ src/camera_lab/
 ├── three_d/   3D / depth (Helios2+, RealSense depth) — later
 └── laser/     laser line profilers (Gocator 2342 / GoMax) — later
 ```
+camera_lab has its own git repo (`apps/camera_lab/.git`, GitHub `dapfromcanada/RobotArmCameraLab`); the workspace repo does not track it.
+
 Folder names `two_d` / `three_d` instead of `2d` / `3d` because Python package names cannot start with a digit.
 
 ## Install

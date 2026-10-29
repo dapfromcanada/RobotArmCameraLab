@@ -15,3 +15,10 @@ dist/
 
 # Arena SDK runtime file (written into the working directory)
 persist.json
+
+# Python bytecode (the workspace .gitignore covered these while camera_lab was part of it)
+__pycache__/
+*.pyc
+
+# camera recordings kept beside the tests (runtime data, not used by any test)
+tests/two_d/data/

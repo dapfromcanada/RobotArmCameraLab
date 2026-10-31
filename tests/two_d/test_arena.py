@@ -721,6 +721,14 @@ def test_identity_nodes(cam: ArenaCamera) -> None:
     assert nodes["DeviceVersion"] == "K7A4W"
 
 
+def test_image_processing_reads_sharpening_when_the_camera_has_it(cam: ArenaCamera) -> None:
+    assert cam.image_processing() == {}  # the fake TRI054S-C lists no sharpening node
+    cam._nm._add("SharpeningEnable", False)  # like the TRI089S-M (live 2026-10-31)
+    assert cam.image_processing() == {"SharpeningEnable": False}
+    cam._nm.get_node("SharpeningEnable").value = True
+    assert cam.image_processing() == {"SharpeningEnable": True}
+
+
 def test_auto_lowered_frame_rate_follows_a_shorter_exposure(cam: ArenaCamera) -> None:
     """Fresh-agent test 2026-10-23: 200 → 150 ms in a new CLI process left the rate low."""
     from camera_lab.two_d.drivers.arena import FRAME_OVERHEAD_US

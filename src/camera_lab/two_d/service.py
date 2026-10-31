@@ -795,6 +795,16 @@ class TwoDService:
                 out.append(f"{key}: wanted {wa}, camera has {cur}")
         return out
 
+    def processing_on(self, camera_id: str) -> list[str]:
+        """In-camera processing that is on although camera_lab measures with it off (empty =
+        all off). Read only: camera_lab never writes these switches."""
+        _, oc = self._require_open(camera_id)
+        return [
+            f"{name} is on: in-camera sharpening changes focus and noise readings"
+            for name, on in oc.camera.image_processing().items()
+            if on
+        ]
+
     def _infer_mode(self, serial: str) -> str | None:
         """The profile mode whose settings the camera has now (the default mode first): a new
         process (each CLI call) did not enter it itself but must still use its targets."""
@@ -818,7 +828,8 @@ class TwoDService:
 
         Never trust the boot state (Derek 2026-10-23: a stray 28.6 dB in a user set skewed a
         day of measurements). Live only: nothing is written to the camera's flash. The camera
-        is backed up first. ``mismatches`` lists the mode settings that did not take.
+        is backed up first. ``mismatches`` lists the mode settings that did not take, and any
+        in-camera processing left on (sharpening: checked, never written).
         """
         serial, oc = self._require_open(camera_id)
         backup, _ = self._take_backup(serial, oc, "before reset to factory Default")
@@ -832,7 +843,7 @@ class TwoDService:
         result = self.set_mode(serial, mode, actor)
         mode_name, _ = self.get_profile(serial).mode(mode)
         now = self.get_settings(serial).settings
-        mismatches = self.mode_mismatches(serial, mode_name)
+        mismatches = self.mode_mismatches(serial, mode_name) + self.processing_on(serial)
         _log.info(
             "camera_reset",
             camera_id=serial,

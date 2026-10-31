@@ -121,6 +121,9 @@ from camera_lab.two_d.models import (
 
 _log = get_logger(__name__)
 
+#: In-camera processing camera_lab measures with off (read, never written: reset / verify).
+PROCESSING_NODES = ("SharpeningEnable",)
+
 LUCID_VENDOR = "lucid vision labs"
 #: Pixel formats camera_lab can decode, in the order offered.
 SUPPORTED_FORMATS = (
@@ -1099,6 +1102,17 @@ class ArenaCamera(Camera2D):
             # inside the paused window: some of it is stream-locked (GUI live view, 2026-10-24)
             self.configure_on_open()
         return {"slot": slot, "notes": ["open-time setup re-applied (autos off)"]}
+
+    def image_processing(self) -> dict[str, bool]:
+        """``SharpeningEnable`` (TRI089S-M fw 1.97.0.0 has it, off at factory Default, checked
+        live 2026-10-31; SharpeningAmount / Threshold are unavailable while it is off)."""
+        with self._lock, self._guard():
+            out: dict[str, bool] = {}
+            for name in PROCESSING_NODES:
+                n = self._readable_node(name)
+                if n is not None:
+                    out[name] = bool(n.value)
+            return out
 
     def identity_nodes(self) -> dict[str, str]:
         with self._lock, self._guard():

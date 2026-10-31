@@ -1,6 +1,7 @@
 """Verify a camera's state on whatever it sees — the white paper's checks, as a command.
 
 1. ``mode``       — every setting of the design mode is in place (read back).
+   ``processing`` — in-camera sharpening is off (when the camera has the switch).
 2. ``gain``       — the gain the camera model's baseline was measured at (a digital gain
                     would scale every level and clip the highlights).
 3. ``camera_state`` — linear output: exposure E/2 and E give × 2.00 (× 1.41 = gamma LUT).
@@ -58,6 +59,20 @@ def verify_camera(
             data={"design_mode": design, "mismatches": mism},
         )
     )
+    switches = service._open[serial].camera.image_processing()
+    if switches:
+        on = service.processing_on(serial)
+        a.add(
+            SiteCheck(
+                name="processing",
+                status="pass" if not on else "fail",
+                message="; ".join(on) if on else ", ".join(f"{n} off" for n in switches),
+                action=""
+                if not on
+                else "switch it off (camera_lab never writes it), then verify again",
+                data={"switches": switches},
+            )
+        )
     a.gain_condition()
     start = float(service.get_settings(serial).settings.exposure_us)
     try:

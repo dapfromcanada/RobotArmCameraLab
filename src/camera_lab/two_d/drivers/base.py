@@ -149,6 +149,11 @@ class Camera2D(ABC):
         stored features (None = unknown), whether a save needs the stream stopped."""
         return {"slots": [], "boot_set_feature": False, "stored_features": None, "notes": []}
 
+    def image_processing(self) -> dict[str, bool]:
+        """In-camera image processing switches camera_lab measures with off (read only), by
+        node name: ``True`` = on. Empty = the camera has none of them."""
+        return {}
+
     def identity_nodes(self) -> dict[str, str]:
         """Standard GenICam identity features the camera reports (read only), by node name.
         ``DeviceFirmwareVersion`` is the firmware; ``DeviceVersion`` is the hardware/device

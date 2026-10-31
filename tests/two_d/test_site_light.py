@@ -226,6 +226,28 @@ def test_verify_passes_a_good_camera_and_catches_problems(
     assert c["dark_clip"].status == "fail" and "black level" in c["dark_clip"].action
 
 
+def test_reset_and_verify_catch_in_camera_sharpening(
+    svc: TwoDService, sheets: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Read only: sharpening on is reported (reset not ok, verify fails), never written."""
+    from camera_lab.two_d.site.verify import verify_camera
+
+    cam = svc._open[SIM].camera
+    c = {x.name: x for x in verify_camera(svc, SIM, sheet_root=sheets)}
+    assert "processing" not in c  # a camera without the switch: no check
+    switches = {"SharpeningEnable": False}
+    monkeypatch.setattr(cam, "image_processing", lambda: dict(switches))
+    svc.set_mode(SIM, "linear")
+    c = {x.name: x for x in verify_camera(svc, SIM, sheet_root=sheets)}
+    assert c["processing"].status == "pass" and "SharpeningEnable off" in c["processing"].message
+    assert svc.reset_camera(SIM)["ok"]
+    switches["SharpeningEnable"] = True
+    out = svc.reset_camera(SIM)
+    assert not out["ok"] and any("SharpeningEnable is on" in m for m in out["mismatches"])
+    c = {x.name: x for x in verify_camera(svc, SIM, sheet_root=sheets)}
+    assert c["processing"].status == "fail" and "never writes" in c["processing"].action
+
+
 def test_tune_never_touches_gain_in_a_mode_without_a_gain_knob(
     make_service: Callable[..., TwoDService], tmp_path: Path
 ) -> None:

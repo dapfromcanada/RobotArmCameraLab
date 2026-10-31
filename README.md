@@ -65,8 +65,8 @@ camera-lab two-d setup triton                     # guided setup: backup, light,
 camera-lab two-d backup triton                    # save the camera's whole configuration
 camera-lab two-d backups triton                   # list backups
 camera-lab two-d restore triton <backup_id>       # write one back (asks; current state backed up first)
-camera-lab two-d reset mono89                     # factory Default + design mode, every setting read back
-camera-lab two-d verify mono89                    # the white paper's state checks on the live image
+camera-lab two-d reset mono89                     # factory Default + design mode, every setting read back, sharpening checked off
+camera-lab two-d verify mono89                    # the white paper's state checks on the live image (+ sharpening off)
 camera-lab two-d assess-light mono89              # site light vs the model's baseline (judges the part area)
 camera-lab two-d part-area show mono89            # the camera's part area (draw it in the GUI's live view)
 camera-lab two-d part-area clear mono89           # remove it: the whole image is scored again

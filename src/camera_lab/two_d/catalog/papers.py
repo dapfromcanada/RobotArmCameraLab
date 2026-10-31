@@ -286,13 +286,18 @@ def _latest_tables(res: list[Result], run_id: str) -> list[str]:
         key=lambda x: x.exposure_us or 0,
     )
     if darks:
+        g0 = min(x.gain_db for x in darks if x.gain_db is not None)
+        # the gain-step darks share an exposure (10 ms) with the exposure sweep: match the gain
         black: dict[float | None, float | None] = {
-            x.exposure_us: x.value for x in res if x.quantity == "black_dn" and x.exposure_us
+            x.exposure_us: x.value
+            for x in res
+            if x.quantity == "black_dn" and x.exposure_us and x.gain_db in (g0, None)
         }
         hot: dict[float | None, float | None] = {
-            x.exposure_us: x.value for x in res if x.quantity == "hot_pixel_count" and x.exposure_us
+            x.exposure_us: x.value
+            for x in res
+            if x.quantity == "hot_pixel_count" and x.exposure_us and x.gain_db in (g0, None)
         }
-        g0 = min(x.gain_db for x in darks if x.gain_db is not None)
         out += ["", f"### Darks per exposure ({run_id})", ""]
         out += _table(
             ("exposure ms", "black DN", "read noise DN", "hot pixels"),

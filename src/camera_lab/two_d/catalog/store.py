@@ -714,6 +714,32 @@ class Catalog:
                 reason,
             )
 
+    def delete_sections_from(
+        self, model_id: str, ord_: int, *, lens_id: str = "", actor: Actor = "human"
+    ) -> int:
+        """Remove the paper's sections from position ``ord_`` on (a shorter paper replaced a
+        longer one). Returns how many went."""
+        with self.transaction() as conn:
+            gone = [
+                r["ord"]
+                for r in conn.execute(
+                    "SELECT ord FROM paper_sections "
+                    "WHERE model_id = ? AND lens_id = ? AND ord >= ?",
+                    (model_id, lens_id, ord_),
+                )
+            ]
+            conn.execute(
+                "DELETE FROM paper_sections WHERE model_id = ? AND lens_id = ? AND ord >= ?",
+                (model_id, lens_id, ord_),
+            )
+            for o in gone:
+                conn.execute(
+                    "INSERT INTO change_log (utc, actor, tbl, row_key, col, old, new, reason) "
+                    "VALUES (?, ?, 'paper_sections', ?, NULL, NULL, 'deleted', NULL)",
+                    (_utc(), actor, f"{model_id}/{lens_id}/{o}"),
+                )
+        return len(gone)
+
     def sections(self, model_id: str, lens_id: str = "") -> list[tuple[str, str]]:
         return [
             (r["heading"], r["body"])

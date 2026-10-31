@@ -636,7 +636,7 @@ def setup(
             r = ses.focus_reading()
             value = r["mtf50_cyc_px"]
             line = (
-                f"  MTF50 {value:.3f} cycles/px  (best {r['best']:.3f})"
+                f"  MTF50 {value:.3f} cycles/px  (best {r['best']:.3f})  {r.get('message', '')}"
                 if value is not None
                 else f"  {r.get('message', 'no reading')}"
             )
@@ -1148,3 +1148,45 @@ def catalog_facts_cmd(
             cat.set_fact(model, key.strip(), value, source="manual", actor="human")
         facts = {k: v for k, v in cat.facts(model).items() if k.startswith(prefix)}
     emit(facts, json_out, lambda: "\n".join(f"{k} = {_json.dumps(v)}" for k, v in facts.items()))
+
+
+@catalog_app.command("sections")
+@handle_errors
+def catalog_sections_cmd(
+    model: Annotated[str, typer.Argument(help="Camera model, e.g. TRI089S-M.")],
+    lens: Annotated[
+        str, typer.Option(help="A lens id: that pair paper (camera paper if empty).")
+    ] = "",
+    load: Annotated[
+        Path | None,
+        typer.Option(
+            help="A Markdown file: its text before the first '## ' heading and every '## ' "
+            "section become the paper's prose, replacing what is there (each change logged).",
+        ),
+    ] = None,
+    json_out: JsonOpt = False,
+) -> None:
+    """The prose sections of a white paper (headings); --load replaces them from a Markdown
+    file. The measured-data section is generated: leave it out of the file. Regenerate the
+    papers afterwards (catalog papers).
+
+    Example: camera-lab two-d catalog sections TRI089S-M --load draft.md
+    """
+    from camera_lab.two_d.catalog import Catalog
+    from camera_lab.two_d.catalog.papers import split_sections
+
+    with Catalog() as cat:
+        if load is not None:
+            if load.suffix != ".md" or not load.is_file():
+                raise typer.BadParameter(f"--load needs an existing .md file, got {load}")
+            parts = [
+                (h, b)
+                for h, b in split_sections(load.read_text())
+                if "(generated from the catalog)" not in h
+            ]
+            cat.backup("before catalog sections")
+            for i, (heading, body) in enumerate(parts):
+                cat.set_section(model, i, heading, body, lens_id=lens, reason=f"from {load.name}")
+            cat.delete_sections_from(model, len(parts), lens_id=lens)
+        heads = [h or "(title and introduction)" for h, _ in cat.sections(model, lens)]
+    emit(heads, json_out, lambda: "\n".join(heads) or "no prose sections")

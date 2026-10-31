@@ -1,4 +1,4 @@
-# JAI Apex AP-3200T-PGE — camera white paper (generated 2026-10-25 15:12 UTC from the camera catalog; runs: U330439/20261024T131257Z, U330439/20261024T161546Z, U330439/20261024T170000Z-live, U330439/20261025T101320Z, U330439/20261025T143049Z)
+# JAI Apex AP-3200T-PGE — camera white paper (generated 2026-10-30 15:48 UTC from the camera catalog; runs: U330439/20261024T131257Z, U330439/20261024T161546Z, U330439/20261024T170000Z-live, U330439/20261025T101320Z, U330439/20261025T143049Z)
 
 What this camera is, how it works, how it behaves and how well it performs, measured on the
 camera_lab bench. Machine-readable twin: `AP-3200T-PGE.yaml`.
@@ -305,7 +305,7 @@ Every number below is from the catalog (`camera-lab two-d catalog runs`).
 | 1 | 100 | 1.751 | 3210 |
 | 2 | 100.1 | 1.762 | 3278 |
 | 5 | 100.3 | 1.816 | 3323 |
-| 10 | 101.6 | 1.888 | 3719 |
+| 10 | 100.6 | 1.888 | 3719 |
 | 20 | 101.3 | 2.029 | 2880 |
 | 50 | 102.2 | 2.401 | 3044 |
 | 100 | 96.28 | 2.935 | 3225 |

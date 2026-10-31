@@ -68,6 +68,8 @@ class FocusReading:
     field_mtf50: dict[str, float | None] = field(default_factory=dict)
     corner_worst: tuple[str, float] | None = None
     softer_side: str | None = None
+    #: the chart focused on (its id): a focus baseline compares only on the same chart
+    chart: str | None = None
 
     @property
     def best_main(self) -> float | None:
@@ -196,6 +198,7 @@ class FocusMeter:
             field_mtf50=field_mtf,
             corner_worst=worst,
             softer_side=softer,
+            chart=spec.id,
             **base,
         )
 

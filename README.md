@@ -77,6 +77,7 @@ camera-lab two-d catalog lenses                   # lenses, marked stops, measur
 camera-lab two-d catalog runs U330439             # fingerprint runs in the catalog
 camera-lab two-d catalog changes                  # who changed what in the catalog
 camera-lab two-d catalog papers                   # regenerate the white papers
+camera-lab two-d catalog sections TRI089S-M --load draft.md  # replace a paper's prose (## sections)
 camera-lab two-d catalog backup --to <folder>     # dated copy of the catalog
 camera-lab manual                                 # WS/Manuals/apps/camera_lab.md for other agents
 camera-lab light list                             # also: light set …, light off
@@ -155,5 +156,5 @@ Bench tests skip cameras that are not connected. The TRI054S HDR-mode tests need
 - **Limits policy (schema 2, 2026-10-21):** `config/safety_limits.yaml` is enforced in `core/safety.py` only, on every path (CLI, MCP, GUI, tuners), read-only at runtime, and the app refuses to start if it is invalid (fail closed; `--sim` uses built-in defaults). Camera exposure, gain and frame rate are limited only by the camera's own range; each profile's `working_range` steers tuning but never blocks. Hard limits: lights (max %, step, rate), rates and budgets, and **protected camera features** (network/IP, reset, firmware/file access, user-set save), which are never written by settings tools or a restore.
 - All input is validated with pydantic. Names and ids are slug-validated and every path is built with `safe_join` (no string-built paths). YAML is parsed with `yaml.safe_load` only, size-limited.
 - No shell, `eval` or pickle. No secrets are needed (`.env.example` lists the optional variables; `.env` is git-ignored).
-- MCP is stdio only (no network listener). Errors returned to the agent carry no stack traces (those go to the stderr log). Per-camera file locks stop two processes driving one camera.
+- MCP is stdio only (no network listener). Errors returned to the agent carry no stack traces (those go to the stderr log). Per-camera file locks in `/run/user/<uid>/camera_lab/` (else `/tmp/camera_lab-<uid>/`, chosen from the uid, never from `XDG_RUNTIME_DIR`) stop two processes driving one camera.
 - `pip-audit` is clean (2026-10-21). The vendor SDK wheels are not on PyPI and cannot be audited.

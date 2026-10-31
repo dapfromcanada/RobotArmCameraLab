@@ -37,6 +37,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from camera_lab.core.paths import safe_join, validate_serial, ws_root
 from camera_lab.core.records import atomic_write_bytes
 from camera_lab.two_d.errors import InvalidRequestError, TwoDError
+from camera_lab.two_d.focus import FocusMeter
 from camera_lab.two_d.models import CameraSettingsPatch, WbChannel
 
 if TYPE_CHECKING:
@@ -65,6 +66,7 @@ BRIGHTNESS_TOL = 0.05  # absolute, on the 0–1 level
 BRIGHTNESS_MAX_ITERS = 10
 RECHECK_TOL = 0.08  # absolute: re-check passes without re-tuning inside this
 FOCUS_DROP_TOL = 0.10  # MTF50 more than 10 % below the baseline → drifted
+FOCUS_GRAB_TIMEOUT_MS = 5000
 WB_TOL_PCT = 2.0
 WB_MAX_ITERS = 4
 SETUP_STEP_BUDGET = 40
@@ -109,6 +111,7 @@ class SetupSession:
         self._root = root
         self.results: dict[StepName, StepResult] = {}
         self.focus_best: float | None = None
+        self._focus: FocusMeter | None = None
         self.profile = service.get_profile(self.camera_id)
         self.mode_name, self.mode = self.profile.mode(service.current_mode(self.camera_id))
         self.run: TuningRun | None = None
@@ -386,22 +389,27 @@ class SetupSession:
 
     # --------------------------------------------------------------- focus
     def focus_reading(self) -> dict[str, Any]:
-        """One live sharpness reading (MTF50 on the resolution chart) and the best so far."""
-        res = self._charts().get("resolution", {}).get("scores")
-        if not res or res.get("mtf50_cyc_px") is None:
-            return {
-                "mtf50_cyc_px": None,
-                "best": self.focus_best,
-                "message": "no resolution chart in view",
-            }
-        value = float(res["mtf50_cyc_px"])
-        self.focus_best = value if self.focus_best is None else max(self.focus_best, value)
+        """One live sharpness reading from the Focus tool's meter (MTF50 on the resolution
+        chart, else the field chart's centre sheet) and the best so far. The meter's own
+        warnings (chart too small, light dropped, clipped) and hint come with it; the best
+        starts again when the chart moves."""
+        if self._focus is None:
+            self._focus = FocusMeter(self.service.chart_library())
+        frame = self.service.grab(self.camera_id, FOCUS_GRAB_TIMEOUT_MS)
+        exposure = self.service.get_settings(self.camera_id).settings.exposure_us
+        r = self._focus.read(frame, float(exposure or 0.0))
+        self.focus_best = r.best_main
+        message = "; ".join((*r.warnings, r.hint) if r.found else r.warnings)
+        if r.main is None:
+            return {"mtf50_cyc_px": None, "best": self.focus_best, "message": message}
         return {
-            "mtf50_cyc_px": value,
-            "mtf50_lp_mm": res.get("mtf50_lp_mm"),
+            "mtf50_cyc_px": r.main,
+            "mtf50_lp_mm": r.lp_mm,
             "best": self.focus_best,
-            "edges": res.get("edges_measured"),
-            "clipped": res.get("any_clipped"),
+            "edges": r.edges,
+            "clipped": r.clipped_pct > 0.2,
+            "chart": r.chart,
+            "message": message,
         }
 
     def _baseline_path(self) -> Path:
@@ -434,10 +442,22 @@ class SetupSession:
             "mtf50_cyc_px": value,
             "mtf50_lp_mm": reading.get("mtf50_lp_mm"),
             "best_seen": self.focus_best,
+            "chart": reading.get("chart"),
         }
         if baseline is not None:
             base = float(baseline["mtf50_cyc_px"])
             data["baseline"] = base
+            was = baseline.get("chart")  # baselines before 2026-10-30 do not name it
+            if was is not None and was != reading.get("chart"):
+                return self._record(
+                    StepResult(
+                        step="focus",
+                        status="fail",
+                        message=f"the focus baseline was measured on chart {was}, this reading "
+                        f"is on {reading.get('chart')}: put {was} in view to compare",
+                        data=data,
+                    )
+                )
             if value < base * (1 - FOCUS_DROP_TOL):
                 return self._record(
                     StepResult(
@@ -462,6 +482,7 @@ class SetupSession:
             "serial": self.camera_id,
             "mtf50_cyc_px": value,
             "mtf50_lp_mm": reading.get("mtf50_lp_mm"),
+            "chart": reading.get("chart"),
             "recorded_utc": datetime.now(UTC).isoformat(),
             "note": "first setup: camera + lens + working distance baseline",
         }

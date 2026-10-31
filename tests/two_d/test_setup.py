@@ -88,6 +88,23 @@ def test_second_setup_compares_focus_with_the_baseline(
     assert ses.next_step() == "focus"
 
 
+def test_focus_uses_the_focus_meter_and_compares_on_the_same_chart(
+    svc: TwoDService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The setup reads focus with the Focus tool's meter (its hint comes along), records the
+    chart in the baseline and compares only on that chart."""
+    ses, _ = _session(svc, tmp_path, monkeypatch)
+    ses.step_backup(), ses.step_light(), ses.step_brightness()
+    reading = ses.focus_reading()
+    assert reading["chart"] and "turn" in reading["message"]
+    assert ses.finish_focus(locked=True).status == "pass"
+    base = tmp_path / "setup" / f"{SIM}.json"
+    assert json.loads(base.read_text())["chart"] == reading["chart"]
+    base.write_text(json.dumps({"mtf50_cyc_px": 0.01, "chart": "another-chart-v1"}))
+    f = ses.finish_focus(locked=True)
+    assert f.status == "fail" and "measured on chart another-chart-v1" in f.message
+
+
 @pytest.mark.parametrize(
     ("k", "start_exposure", "expect"),
     [

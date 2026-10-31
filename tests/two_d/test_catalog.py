@@ -255,6 +255,62 @@ def test_cli_imports_and_lists(tmp_roots: Path, monkeypatch: pytest.MonkeyPatch)
     assert res.exit_code == 0 and "import" in res.stdout
 
 
+def test_cli_sections_load_replaces_the_prose(
+    tmp_roots: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``catalog sections --load``: the file's sections become the paper's prose (the generated
+    measured-data section is skipped); a shorter file removes the rest, each change logged."""
+    from typer.testing import CliRunner
+
+    from camera_lab.cli import app
+
+    db = tmp_roots / "config" / "catalog.sqlite"
+    monkeypatch.setenv("CAMERA_LAB_CATALOG", str(db))
+    with Catalog(db) as c:
+        c.upsert_camera_model(
+            "TRI089S-M", vendor="Lucid Vision Labs", shutter="global", colour="mono"
+        )
+    draft = tmp_roots / "draft.md"
+    draft.write_text(
+        "# Lucid Triton TRI089S-M — camera white paper\nintro\n\n## 1. Summary\ntext\n"
+        "## 2. Timing\nfast\n## 3. Measured data (generated from the catalog)\nold table\n"
+    )
+    run = CliRunner().invoke
+    res = run(app, ["two-d", "catalog", "sections", "TRI089S-M", "--load", str(draft)])
+    assert res.exit_code == 0, res.output
+    assert res.stdout.split("\n")[:3] == ["(title and introduction)", "1. Summary", "2. Timing"]
+    draft.write_text("# Lucid Triton TRI089S-M — camera white paper\nintro\n\n## 1. Summary\nnew\n")
+    res = run(app, ["two-d", "catalog", "sections", "TRI089S-M", "--load", str(draft)])
+    assert res.exit_code == 0, res.output
+    with Catalog(db) as c:
+        assert c.sections("TRI089S-M") == [
+            ("", "# Lucid Triton TRI089S-M — camera white paper\nintro"),
+            ("1. Summary", "new"),
+        ]
+        log = c.changes(20)
+    assert any(x["row_key"] == "TRI089S-M//2" and x["new"] == "deleted" for x in log)
+    res = run(
+        app, ["two-d", "catalog", "sections", "TRI089S-M", "--load", str(tmp_roots / "x.txt")]
+    )
+    assert res.exit_code != 0
+
+
+def test_darks_table_takes_the_design_gain_at_a_shared_exposure() -> None:
+    """The gain-step darks are taken at 10 ms like one exposure-sweep point: the table must
+    show the design gain's black, not the last gain step's (TRI089S-M: 66 DN at 48 dB)."""
+    from camera_lab.two_d.catalog.papers import _latest_tables
+
+    res = [
+        Result("read_noise_dn", 0.887, gain_db=0.0, exposure_us=10000.0),
+        Result("black_dn", 41.36, gain_db=0.0, exposure_us=10000.0),
+        Result("read_noise_dn", 86.7, gain_db=48.0, exposure_us=10000.0),
+        Result("black_dn", 66.09, gain_db=48.0, exposure_us=10000.0),
+        Result("hot_pixel_count", 1672.0, exposure_us=10000.0),
+    ]
+    text = "\n".join(_latest_tables(res, "x/1"))
+    assert "| 10 | 41.36 | 0.887 | 1672 |" in text and "66.09" not in text
+
+
 def test_sheet_cells_round_trip_and_sections_split() -> None:
     from camera_lab.two_d.catalog.papers import flatten, split_sections, unflatten
 

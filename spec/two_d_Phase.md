@@ -154,7 +154,7 @@ APP/
      - lights max 80 %, step 25 %, 2 changes/s
      - max_steps_hard 40, captures/run 200, MCP capture count 5
      - Comment every key.
-4. `core/locks.py`: `CameraLock(serial, owner)` as a context manager. It uses an `fcntl.flock` non-blocking lock on `$XDG_RUNTIME_DIR/camera_lab/<serial>.lock` (fallback `/tmp/camera_lab-<uid>/`), writes PID + owner, and raises `CameraBusyError(holder)`. **Security-sensitive.**
+4. `core/locks.py`: `CameraLock(serial, owner)` as a context manager. It uses an `fcntl.flock` non-blocking lock on `/run/user/<uid>/camera_lab/<serial>.lock` (fallback `/tmp/camera_lab-<uid>/`; from the uid, not `XDG_RUNTIME_DIR`), writes PID + owner, and raises `CameraBusyError(holder)`. **Security-sensitive.**
 5. `core/registry.py`: a generic `Registry[T]` with a `register(name)` decorator, `get(name)` and `names()`. Duplicate names raise.
 6. `core/lights/`:
    - `LightChannel` model

@@ -15,13 +15,17 @@ from camera_lab.core.paths import UnsafePathError
 
 @pytest.fixture(autouse=True)
 def runtime_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    d = tmp_path / "xdg"
-    d.mkdir(mode=0o700)
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(d))
+    """A fake ``/run/user``: the lock folder is ``<it>/<uid>/camera_lab``."""
+    root = tmp_path / "run-user"
+    d = root / str(os.getuid())
+    d.mkdir(parents=True, mode=0o700)
+    monkeypatch.delenv("CAMERA_LAB_LOCK_DIR", raising=False)
+    monkeypatch.setattr(locks, "RUN_USER_ROOT", root)
     return d
 
 
-def _try_lock_in_child(serial: str, q: mp.Queue) -> None:  # type: ignore[type-arg]
+def _try_lock_in_child(serial: str, run_user_root: Path, q: mp.Queue) -> None:  # type: ignore[type-arg]
+    locks.RUN_USER_ROOT = run_user_root  # the spawned child does not inherit the monkeypatch
     try:
         with CameraLock(serial, owner="child"):
             q.put(("acquired", ""))
@@ -32,7 +36,7 @@ def _try_lock_in_child(serial: str, q: mp.Queue) -> None:  # type: ignore[type-a
 def _run_child(serial: str) -> tuple[str, str]:
     ctx = mp.get_context("spawn")
     q = ctx.Queue()
-    p = ctx.Process(target=_try_lock_in_child, args=(serial, q))
+    p = ctx.Process(target=_try_lock_in_child, args=(serial, locks.RUN_USER_ROOT, q))
     p.start()
     result: tuple[str, str] = q.get(timeout=30)
     p.join(timeout=30)
@@ -96,10 +100,30 @@ def test_bad_owner(owner: str) -> None:
         CameraLock("SIM-0001", owner=owner)
 
 
-def test_fallback_dir_when_no_xdg(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_lock_dir_ignores_xdg_runtime_dir(
+    runtime_dir: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """With or without XDG_RUNTIME_DIR (cron, ssh), every process finds the same lock."""
+    other = tmp_path / "other-xdg"
+    other.mkdir(mode=0o700)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(other))
+    with_xdg = locks.lock_dir()
     monkeypatch.delenv("XDG_RUNTIME_DIR")
+    assert locks.lock_dir() == with_xdg == runtime_dir / "camera_lab"
+
+
+def test_fallback_dir_when_no_run_user(
+    runtime_dir: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(locks, "RUN_USER_ROOT", tmp_path / "missing")
     d = locks.lock_dir()
     assert d == Path("/tmp") / f"camera_lab-{os.getuid()}"
+
+
+def test_override_must_be_absolute(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CAMERA_LAB_LOCK_DIR", "relative/locks")
+    with pytest.raises(LockDirError, match="absolute"):
+        locks.lock_dir()
 
 
 def test_insecure_lock_dir_rejected(runtime_dir: Path) -> None:

@@ -1346,6 +1346,10 @@ class TwoDService:
         _log.info("captured", camera_id=serial, run_id=recorder.run_id, count=len(results))
         return results
 
+    def chart_library(self) -> dict[int, ChartSpec]:
+        """Tag id → chart of the service's chart library (empty if it is unavailable)."""
+        return self._chart_library()
+
     def _chart_library(self) -> dict[int, ChartSpec]:
         """Tag id → chart; empty (detection off) if the library is missing or invalid."""
         try:

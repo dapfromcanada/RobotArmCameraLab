@@ -1,10 +1,13 @@
 """Per-camera process lock: one process controls a camera at a time.
 
 SECURITY-SENSITIVE. The lock is an ``fcntl.flock`` (exclusive, non-blocking) on
-``$XDG_RUNTIME_DIR/camera_lab/<serial>.lock``, falling back to
-``/tmp/camera_lab-<uid>/<serial>.lock``. The file holds ``<pid> <owner>`` of the
-current holder. The kernel releases the lock when the holder's process exits,
-so a crashed process never leaves a stale lock (a stale *file* is harmless).
+``/run/user/<uid>/camera_lab/<serial>.lock``, falling back to
+``/tmp/camera_lab-<uid>/<serial>.lock`` when ``/run/user/<uid>`` is missing or not
+ours. The folder comes from the uid only, never from ``XDG_RUNTIME_DIR``: a process
+started without that variable (cron, ssh, some MCP launchers) must find the same
+lock as the GUI. ``CAMERA_LAB_LOCK_DIR`` overrides it (tests only). The file holds
+``<pid> <owner>`` of the current holder. The kernel releases the lock when the
+holder's process exits, so a crashed process never leaves a stale lock (a stale *file* is harmless).
 
 Hardening:
 - the lock directory is created ``0700``; an existing directory must be a real
@@ -29,6 +32,8 @@ from camera_lab.core.paths import UnsafePathError, safe_join, validate_serial
 #: Front-end name written into the lock (``cli``, ``mcp``, ``gui``, ``test`` ...).
 OWNER_RE = re.compile(r"[a-z0-9_-]{1,32}")
 _MAX_HOLDER_BYTES = 128
+#: Per-user runtime folders (systemd-logind); the lock folder is ``<root>/<uid>/camera_lab``.
+RUN_USER_ROOT = Path("/run/user")
 
 
 class CameraBusyError(RuntimeError):
@@ -46,11 +51,17 @@ class LockDirError(RuntimeError):
 
 def lock_dir() -> Path:
     """Return (and create, ``0700``) the directory holding the lock files."""
-    runtime = os.environ.get("XDG_RUNTIME_DIR")
-    if runtime and Path(runtime).is_absolute() and Path(runtime).is_dir():
-        d = Path(runtime) / "camera_lab"
+    uid = os.getuid()
+    override = os.environ.get("CAMERA_LAB_LOCK_DIR")
+    run_user = RUN_USER_ROOT / str(uid)
+    if override:
+        if not Path(override).is_absolute():
+            raise LockDirError(f"CAMERA_LAB_LOCK_DIR must be absolute: {override!r}")
+        d = Path(override)
+    elif run_user.is_dir() and run_user.stat().st_uid == uid:
+        d = run_user / "camera_lab"
     else:
-        d = Path("/tmp") / f"camera_lab-{os.getuid()}"  # noqa: S108 - checked below
+        d = Path("/tmp") / f"camera_lab-{uid}"  # noqa: S108 - checked below
     try:
         d.mkdir(mode=0o700, exist_ok=True)
     except OSError as exc:

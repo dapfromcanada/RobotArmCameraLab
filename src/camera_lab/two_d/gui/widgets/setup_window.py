@@ -428,7 +428,9 @@ class SetupWindow(QDialog):
         else:
             lp = "" if reading.mtf50_lp_mm is None else f"  ({reading.mtf50_lp_mm:.1f} lp/mm)"
             self.focus_current_label.setText(f"{reading.mtf50_cyc_px:.3f} cyc/px{lp}")
-            self._set_row("focus", STATE_RUNNING, "turn the focus ring, then lock it")
+            self._set_row(
+                "focus", STATE_RUNNING, reading.message or "turn the focus ring, then lock it"
+            )
         if reading.best is None:
             self.focus_best_label.setText(NO_READING_TEXT)
         else:

@@ -50,7 +50,7 @@ Derek's principles (they decide every design question):
 - Field chart: `field-plan` reads the sensor from the model paper (spec said live from the camera): only the TRI089S-M and the AP-3200T-PGE have `sensor.pixels` / `pixel_um` so far.
 - Re-record the setup focus baselines in `WS/config/camera_setup/` (233100505, U330439): made with the old scorer, so the 10 % drop check is too lenient. Repeat the JAI chart tests with the fixed scorer.
 - **Camera-lock gap fixed (2026-10-31, Derek approved the spec change):** the lock folder now comes from the uid only (`/run/user/<uid>/camera_lab/`, else `/tmp/camera_lab-<uid>/`), never from `XDG_RUNTIME_DIR`, so cron, ssh and MCP launchers see the GUI's lock. `CAMERA_LAB_LOCK_DIR` overrides it for tests. The stale `/tmp/camera_lab-1000/` folder is harmless (no process uses it any more).
-- Phase 10 step 6 (bench guidance) not started; 3D and laser groups later.
+- Phase 10 step 6 (bench guidance): written 2026-11-01, `docs/bench_guidance.md` (enclosure, steady light, fixed mounting, matte prints, relative vs absolute, session checklist): for Derek's review. 3D and laser groups later.
 
 History before 2026-10-25: `docs/history_2026-10-20_to_24.md`. Bench findings: `docs/experiments/`.
 

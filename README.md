@@ -136,7 +136,7 @@ Dark mode. Left: camera list. Centre: live view (clipped-pixel overlay, part are
 - Safety limits / lights / scoring / aliases / profiles: `config/` (read at start-up; edit and restart)
 - Calibration: `WS/calibration/` — read only; camera_lab warns when a change may invalidate it
 - Test charts: `config/charts/<chart_id>.yaml` (library; AprilTag 36h11 ids 100–199; field chart sheets 130–138), PDFs in `docs/charts/`
-- Camera node-map dumps: `docs/cameras/`. Bench findings: `docs/experiments/`. Spec: `spec/` (read-only). Context for agents: `CONTEXT.md`
+- Camera node-map dumps: `docs/cameras/`. Bench findings: `docs/experiments/`. Bench setup rules: `docs/bench_guidance.md`. Spec: `spec/` (read-only). Context for agents: `CONTEXT.md`
 
 ## Tests
 

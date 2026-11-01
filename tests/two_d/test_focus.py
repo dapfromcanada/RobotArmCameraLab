@@ -62,6 +62,17 @@ def test_warnings_say_what_spoils_the_reading(svc: TwoDService, scene: Scene) ->
     assert not none.found and "resolution chart" in none.warnings[-1]
 
 
+def test_a_clipped_chart_white_gives_no_reading(svc: TwoDService, scene: Scene) -> None:
+    """A saturated white flattens the edge profile and reads far too sharp (2026-11-01: the mono
+    read 0.43 cycles/px instead of 0.25): clipped edges are not measured."""
+    r = _read(svc, FocusMeter())
+    assert r.main is not None and not any("clipped" in w for w in r.warnings)
+    scene.k *= 3 / r.highlights  # the chart white at 3× full scale
+    hot = _read(svc, FocusMeter())
+    assert hot.main is None and hot.edges == 0
+    assert any("chart white clipped on 8 of 8 edges" in w for w in hot.warnings)
+
+
 def test_exposure_follows_the_light(svc: TwoDService, scene: Scene) -> None:
     r = _read(svc, FocusMeter())
     dark = replace(r, highlights=0.2)

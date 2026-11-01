@@ -110,7 +110,8 @@ def test_mtf50_on_a_tilted_view() -> None:
     warp = cv2.getPerspectiveTransform(src, dst)
     img = cv2.warpPerspective(page, warp, (w + 80, h + 120), borderValue=255).astype(np.float64)
     img = np.clip(np.round(cv2.GaussianBlur(img, (0, 0), 1.2)), 0, 255).astype(np.uint8)
-    r = score_resolution(img / 255.0, _detect(img, chart), chart)
+    # paper white at 90 % of full scale, as on a sensibly exposed camera (not clipped)
+    r = score_resolution(img / 255.0 * WHITE, _detect(img, chart), chart)
     assert r["edges_measured"] == 8
     # resampling by the warp adds a little blur: measured ≤ theory, within 10 %
     assert r["mtf50_cyc_px"] == pytest.approx(_expected_mtf50(1.2), rel=0.10)
@@ -134,10 +135,12 @@ def test_edges_outside_the_image_are_reported_not_measured() -> None:
     assert all(e["edge"].startswith("edge-right") for e in errors)
 
 
-def test_clipped_edge_is_flagged() -> None:
+def test_clipped_edges_are_not_measured() -> None:
+    """A clipped white flattens the edge profile and reads far too sharp (2026-11-01)."""
     img, chart = _render("resolution", 4.0, 1.0)
     r = score_resolution(np.minimum(img / 255.0 * 1.3, 1.0), _detect(img, chart), chart)
-    assert r["any_clipped"]
+    assert r["edges_measured"] == 0 and r["mtf50_cyc_px"] is None
+    assert all("edge clipped" in e["error"] for e in r["edges"])
 
 
 # ------------------------------------------------------------- step wedge

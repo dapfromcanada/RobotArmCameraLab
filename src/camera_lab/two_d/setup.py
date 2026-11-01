@@ -36,8 +36,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from camera_lab.core.paths import safe_join, validate_serial, ws_root
 from camera_lab.core.records import atomic_write_bytes
+from camera_lab.core.safety import NotAdjustable
 from camera_lab.two_d.errors import InvalidRequestError, TwoDError
-from camera_lab.two_d.focus import FocusMeter
+from camera_lab.two_d.focus import FOCUS_MAX_EXPOSURE_US, FocusMeter, next_exposure
 from camera_lab.two_d.models import CameraSettingsPatch, WbChannel
 
 if TYPE_CHECKING:
@@ -392,12 +393,28 @@ class SetupSession:
         """One live sharpness reading from the Focus tool's meter (MTF50 on the resolution
         chart, else the field chart's centre sheet) and the best so far. The meter's own
         warnings (chart too small, light dropped, clipped) and hint come with it; the best
-        starts again when the chart moves."""
+        starts again when the chart moves.
+
+        The exposure follows the chart's highlights like the Focus tool's (2026-11-01: the
+        brightness step's exposure, set on the grey patch, clipped the chart white and the
+        setup read 0.43 instead of 0.25); the brightness re-check sets it again afterwards."""
         if self._focus is None:
             self._focus = FocusMeter(self.service.chart_library())
         frame = self.service.grab(self.camera_id, FOCUS_GRAB_TIMEOUT_MS)
-        exposure = self.service.get_settings(self.camera_id).settings.exposure_us
-        r = self._focus.read(frame, float(exposure or 0.0))
+        view = self.service.get_settings(self.camera_id)
+        exposure = float(view.settings.exposure_us or 0.0)
+        rng = view.ranges.get("exposure_us")
+        lo, hi = (
+            (float(rng.min.value), min(float(rng.max.value), FOCUS_MAX_EXPOSURE_US))
+            if rng is not None and not isinstance(rng, NotAdjustable)
+            else (1.0, FOCUS_MAX_EXPOSURE_US)
+        )
+        r = self._focus.read(frame, exposure, at_limit=exposure >= hi * 0.99)
+        new = next_exposure(r, lo, hi)
+        if new is not None and abs(new - exposure) > 0.02 * exposure:
+            self.service.apply(
+                self.camera_id, CameraSettingsPatch(exposure_us=new), self.actor, mode="clamp"
+            )
         self.focus_best = r.best_main
         message = "; ".join((*r.warnings, r.hint) if r.found else r.warnings)
         if r.main is None:
@@ -433,7 +450,8 @@ class SetupSession:
                 StepResult(
                     step="focus",
                     status="fail",
-                    message="no resolution chart in view: place it to check focus",
+                    message=reading["message"]
+                    or "no resolution chart in view: place it to check focus",
                 )
             )
         path = self._baseline_path()

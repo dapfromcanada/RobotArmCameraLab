@@ -39,7 +39,12 @@ from camera_lab.two_d.fingerprint.session import (
     FpSetup,
     StepPlan,
 )
-from camera_lab.two_d.focus import FocusMeter, FocusReading, next_exposure
+from camera_lab.two_d.focus import (
+    FOCUS_MAX_EXPOSURE_US,
+    FocusMeter,
+    FocusReading,
+    next_exposure,
+)
 from camera_lab.two_d.gui.constants import (
     ACTOR,
     FPS_WINDOW_FRAMES,
@@ -84,9 +89,6 @@ CHANNELS_RGBA = 4
 CHANNELS_RGB = 3
 HISTOGRAM_RANGE = (0.0, 1.0)
 LIVE_MIN_INTERVAL_S = 1.0 / MAX_LIVE_FPS
-#: The focus tool keeps exposures short: long ones blur if the bench moves, and the JAI's
-#: darks go bad above ≈ 100 ms (2026-10-25).
-FOCUS_MAX_EXPOSURE_US = 100_000.0
 MS_PER_S = 1000.0
 MIN_FPS_SAMPLES = 2
 CAPTURE_JSON_GLOB = "[0-9][0-9][0-9][0-9].json"

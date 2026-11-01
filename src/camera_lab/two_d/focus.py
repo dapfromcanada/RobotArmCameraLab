@@ -30,6 +30,9 @@ from camera_lab.two_d.processing import demosaic, to_float01
 
 #: Fewer measurable edges than this (of 8): the chart is too small in the image.
 MIN_EDGES = 6
+#: Longest exposure the focus readings choose: long ones blur if the bench moves, and the
+#: JAI's darks go bad above ≈ 100 ms (2026-10-25).
+FOCUS_MAX_EXPOSURE_US = 100_000.0
 #: The chart moved (centre shift as a fraction of the image width, or scale change): the
 #: best value belongs to the old position, so it starts again.
 MOVE_SHIFT = 0.03
@@ -150,6 +153,7 @@ class FocusMeter:
         mtf: dict[str, float | None] = {}
         lp: dict[str, float | None] = {}
         counts: dict[str, int] = {}
+        clipped_edges = 0
         # the squares as found in the image: the one tag misplaces them near the image
         # edge or close to a wide lens (2026-10-28)
         main_plane = planes["G" if "G" in planes else "Y"]
@@ -157,13 +161,20 @@ class FocusMeter:
         for name, plane in planes.items():
             edges = [_edge_mtf(plane, det, f, k, found[f.name]) for f in squares for k in range(4)]
             ok = [e for e in edges if e.get("mtf50_cyc_px") is not None]
+            if name == ("G" if "G" in planes else "Y"):
+                clipped_edges = sum("clipped" in str(e.get("error", "")) for e in edges)
             counts[name] = len(ok)
             mtf[name] = round(float(median(e["mtf50_cyc_px"] for e in ok)), 4) if ok else None
             vals = [e["mtf50_lp_mm"] for e in ok if e.get("mtf50_lp_mm") is not None]
             lp[name] = round(float(median(vals)), 3) if vals else None
         main_key = "G" if "G" in planes else "Y"
         total = 4 * len(squares)
-        if counts[main_key] < MIN_EDGES:
+        if clipped_edges:
+            warnings.append(
+                f"chart white clipped on {clipped_edges} of {total} edges: they are not "
+                "measured (a clipped edge reads far too sharp) — lower the exposure"
+            )
+        elif counts[main_key] < MIN_EDGES:
             warnings.append(
                 f"chart too small in the image ({scale:.1f} px/mm): only {counts[main_key]} of "
                 f"{total} edges measurable — move it closer (or use a longer lens)"

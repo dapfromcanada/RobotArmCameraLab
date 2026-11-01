@@ -50,6 +50,10 @@ PATCH_INSET = 0.2
 MIN_PATCH_PX = 25
 #: A level at or above this (linear 0–1) counts as clipped.
 CLIP_LEVEL = 0.98
+#: Slanted edge: more than this share of its pixels at CLIP_LEVEL and the edge is not measured.
+#: A clipped white flattens the edge profile and reads far too sharp (2026-11-01: the mono
+#: read 0.43 cycles/px instead of 0.25 with the chart white partly saturated).
+EDGE_MAX_CLIPPED_FRAC = 0.002
 #: Adjacent wedge steps are told apart when they differ by more than this × noise.
 SEPARATION_SIGMA = 2.0
 #: Slanted edge: ROI length along the edge (fraction of the side) and half width (mm).
@@ -353,6 +357,13 @@ def _edge_mtf(
     if half < EDGE_MIN_HALF_WIDTH_PX:
         return {"edge": name, "error": "edge too close to the region border"}
     sel = np.abs(dist) <= half
+    clipped_frac = float(np.mean(sub[sel] >= CLIP_LEVEL))
+    if clipped_frac > EDGE_MAX_CLIPPED_FRAC:
+        return {
+            "edge": name,
+            "error": f"edge clipped ({clipped_frac:.1%} of its pixels at full scale): "
+            "lower the exposure",
+        }
     nbins = int(2 * half * OVERSAMPLE)
     idx = np.floor((dist[sel] + half) * OVERSAMPLE).astype(int).clip(0, nbins - 1)
     counts = np.bincount(idx, minlength=nbins)

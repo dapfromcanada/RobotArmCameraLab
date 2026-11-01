@@ -105,6 +105,28 @@ def test_focus_uses_the_focus_meter_and_compares_on_the_same_chart(
     assert f.status == "fail" and "measured on chart another-chart-v1" in f.message
 
 
+def test_focus_step_lowers_an_exposure_that_clips_the_chart(
+    svc: TwoDService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The brightness step sets the exposure on the grey patch; if that clips the chart white,
+    the focus step gives no number and lowers the exposure like the Focus tool (2026-11-01)."""
+    ses, sc = _session(svc, tmp_path, monkeypatch)
+    ses.step_backup(), ses.step_light(), ses.step_brightness()
+    good = ses.focus_reading()["mtf50_cyc_px"]
+    sc.k *= 4  # more light on the chart than on the grey patch: the white well past full scale
+    exposure = svc.get_settings(SIM).settings.exposure_us
+    hot = ses.focus_reading()
+    assert hot["mtf50_cyc_px"] is None and "chart white clipped" in hot["message"]
+    assert svc.get_settings(SIM).settings.exposure_us < exposure  # lowered
+    for _ in range(5):
+        reading = ses.focus_reading()
+        if reading["mtf50_cyc_px"] is not None:
+            break
+    assert reading["mtf50_cyc_px"] == pytest.approx(good, rel=0.1)
+    assert ses.finish_focus(locked=True).status == "pass"
+    assert ses.step_brightness_recheck().ok  # the grey patch level is set again
+
+
 @pytest.mark.parametrize(
     ("k", "start_exposure", "expect"),
     [

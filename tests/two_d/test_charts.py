@@ -354,5 +354,5 @@ def test_field_sheet_tag_detects_and_all_edges_measure() -> None:
     found = _detect(page)
     assert set(found) == {sheet.tags[0].id}
     [det] = charts_from_tags(detect_tags(page), {sheet.tags[0].id: sheet}).charts
-    r = score_resolution(page / 255.0, det, sheet)
+    r = score_resolution(page / 255.0 * 0.9, det, sheet)  # paper white not clipped
     assert r["edges_measured"] == 8

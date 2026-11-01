@@ -29,7 +29,7 @@ Derek's principles (they decide every design question):
 | camera | serial | status | design mode | lens |
 |---|---|---|---|---|
 | JAI AP-3200T-PGE (prism, global) | U330439 | fingerprinted (papers v3 + prose) | `raw`: RGB12V1Packed, master gain | JAI 6 mm 0628-C3 (recipe ref f/2.8); Kowa LM8HC also on file |
-| Lucid TRI089S-M (mono, global, 4096 × 2160) | 244500230 | fingerprinted 2026-10-27 (all rows pass); paper prose 2026-10-30 (agent-written from the fingerprint, node map and bench notes: for Derek's review) | `raw`: Mono12p, black level 1 | Computar 8mm f=1:2.8 1.1" C |
+| Lucid TRI089S-M (mono, global, 4096 × 2160) | 244500230 | fingerprinted 2026-10-27 (all rows pass); paper prose 2026-10-30 (agent-written from the fingerprint, node map and bench notes; Derek reviewed 2026-11-01) | `raw`: Mono12p, black level 1 | Computar 8mm f=1:2.8 1.1" C |
 | Lucid TRI054S-C (Bayer, rolling, HDR) | 233100505 | unplugged; earlier fingerprints 2026-10-21/24 | `raw_hdr`: BayerRG24 linear | Kowa LM8HC |
 
 ### Camera facts learned on the bench
@@ -42,15 +42,15 @@ Derek's principles (they decide every design question):
 - TRI089S-M + Computar 8mm at f/5.6, 2026-10-31 (four-sheet board, light check PASS, 32.24 ms, 0 dB): MTF50 **0.252** cycles/px with the resolution sheet near the centre (≈ 68 cm, 10 readings 0.250–0.254), 0.229 in the lower-right quarter (≈ 65 cm); horizontal 0.263 vs vertical 0.253. The scorer holds across exposure: 0.2515 / 0.2526 / 0.2536 / 0.2544 at highlights 0.10 / 0.19 / 0.38 / 0.75 (scatter sd 0.003 at the darkest). Sensor 50 °C. Boot set: Default (factory, Mono8, BlackLevel 0, ExposureAuto Continuous).
 
 ### Open
-- MCP tools pending Derek's review: `assess_site_light`, `get_camera_white_paper` (now also lens papers), `reset_camera`, `verify_camera_state`.
-- TRI089S-M camera paper prose: Derek to review (2026-10-30).
+- MCP tools `assess_site_light`, `get_camera_white_paper`, `reset_camera`, `verify_camera_state`: Derek reviewed them 2026-11-01 and chose to refuse reset and the site light check while the camera has an active tuning run (they change the camera without spending run steps; `TwoDService.refuse_during_run`, invalid_request "finish it first"). That change is for Derek's review.
+- TRI089S-M camera paper prose: Derek reviewed it 2026-11-01. Fixed: bench light (DC floods, not the dimmed panels), the 2026-10-31 sharpness, the sharpening check in § 10. Kept as is: User Set 1 boot on site, 0.2 % clip limit in raw, the gain split from the Triton table, the read-noise-above-24-dB note.
 - Lens format / pixel-rating fields and mismatch warnings (not in the spec: needs Derek's decision on the fields and thresholds); corner sharpness (field chart).
 - Field chart on the bench: print, mount, first map of the mono + Computar at f/5.6 (spec step 7 done-when); then decide with Derek on a fingerprint row and a sharpness map in the white papers.
 - Part area on the bench (2026-10-31, mono 244500230): Derek drew and saved x 2120, y 817, 359 × 636 px around the part (a bayonet: the tool that extracts the INS system from a stuck drill head; machined steel, specular). A new process (CLI capture) read it back from the catalog and scored the part: mean 0.326, 0 % black, sharpness 1291, vs the whole image mean 0.200, 12.2 % black, sharpness 447 (run 20261031-155738_244500230_run, 32.24 ms). Classic tuner on the part (raw mode: highlights p99 → 0.80): converged in 3 steps, 32.24 → **41.99 ms**, part p99 0.797, mean 0.413, 0 % clipped / black, composite 21.0 → 77.7 (run 20261031-203521_244500230_linear-auto-exposure-highlights-p99-to-0; saved as preset `bayonet`: WS/config/camera_presets/two_d/244500230/bayonet.yaml, lights 0 % because only the simulated light is connected). Left of Phase 13 done-when: reopen the GUI and see the box drawn.
 - Field chart: `field-plan` reads the sensor from the model paper (spec said live from the camera): only the TRI089S-M and the AP-3200T-PGE have `sensor.pixels` / `pixel_um` so far.
 - Re-record the setup focus baselines in `WS/config/camera_setup/` (233100505, U330439): made with the old scorer, so the 10 % drop check is too lenient. Repeat the JAI chart tests with the fixed scorer.
 - **Camera-lock gap fixed (2026-10-31, Derek approved the spec change):** the lock folder now comes from the uid only (`/run/user/<uid>/camera_lab/`, else `/tmp/camera_lab-<uid>/`), never from `XDG_RUNTIME_DIR`, so cron, ssh and MCP launchers see the GUI's lock. `CAMERA_LAB_LOCK_DIR` overrides it for tests. The stale `/tmp/camera_lab-1000/` folder is harmless (no process uses it any more).
-- Phase 10 step 6 (bench guidance): written 2026-11-01, `docs/bench_guidance.md` (enclosure, steady light, fixed mounting, matte prints, relative vs absolute, session checklist): for Derek's review. 3D and laser groups later.
+- Phase 10 step 6 (bench guidance): written 2026-11-01, `docs/bench_guidance.md` (enclosure, steady light, fixed mounting, matte prints, relative vs absolute, session checklist); Derek approved it as is 2026-11-01. 3D and laser groups later.
 
 History before 2026-10-25: `docs/history_2026-10-20_to_24.md`. Bench findings: `docs/experiments/`.
 

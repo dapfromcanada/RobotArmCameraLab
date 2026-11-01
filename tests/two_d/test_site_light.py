@@ -248,6 +248,26 @@ def test_reset_and_verify_catch_in_camera_sharpening(
     assert c["processing"].status == "fail" and "never writes" in c["processing"].action
 
 
+def test_reset_and_site_light_refused_during_a_tuning_run(
+    svc: TwoDService, sheets: Path, tmp_path: Path
+) -> None:
+    """Reset and the light check change the camera without spending run steps: before a run."""
+    from camera_lab.two_d.errors import InvalidRequestError
+
+    run = svc.start_run(SIM, "test", 5)
+    before = svc.get_settings(SIM).settings
+    backups = len(svc.list_backups(SIM))
+    with pytest.raises(InvalidRequestError, match=r"finish it first.*reset the camera"):
+        svc.reset_camera(SIM)
+    with pytest.raises(InvalidRequestError, match=r"finish it first.*assess the light"):
+        _assess(svc, sheets, tmp_path, reset=True)
+    assert svc.get_settings(SIM).settings == before  # nothing changed
+    assert len(svc.list_backups(SIM)) == backups  # refused before the backup
+    assert run.steps_used == 0
+    svc.finish_run(run.run_id, None)
+    assert svc.reset_camera(SIM)["ok"]
+
+
 def test_tune_never_touches_gain_in_a_mode_without_a_gain_knob(
     make_service: Callable[..., TwoDService], tmp_path: Path
 ) -> None:

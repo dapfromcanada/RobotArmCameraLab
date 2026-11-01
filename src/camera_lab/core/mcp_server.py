@@ -110,6 +110,7 @@ Workflow
    its quirks, measured performance and how to check its state. Read it first.
    assess_site_light(camera_id): checks the light on the real scene against that baseline
    (linear output, flicker, enough light for the best SNR, clipping) and says what to change.
+   reset_camera and assess_site_light come before a run: both are refused during one.
 2. set_camera_mode(camera_id, mode) if you want a mode other than the current one.
 3. start_tuning_run(camera_id, goal, max_steps): returns run_id, the step budget, current
    settings, effective ranges and the scoring targets. Every capture, settings change and
@@ -495,7 +496,8 @@ def create_server(
     def reset_camera(camera_id: CameraId, mode: ModeName | None = None) -> Any:
         """Start from a known state: load the factory Default settings, enter the profile mode
         (default: the camera's design mode) with all its settings, and read every one back.
-        Never trust the state a camera booted with. Nothing is written to camera memory."""
+        Never trust the state a camera booted with. Nothing is written to camera memory.
+        Refused while the camera has an active tuning run: reset before start_tuning_run."""
 
         @guarded("reset_camera")
         def body(state: AppState) -> dict[str, Any]:
@@ -559,7 +561,8 @@ def create_server(
         baseline: camera state (linear output), flicker, brightness vs the best-SNR level within
         the exposure budget (default one frame), SNR, clipping, distribution. Each check has a
         status and an action. apply=true leaves the camera at the recommended exposure;
-        otherwise it is restored. Takes about a minute."""
+        otherwise it is restored. Takes about a minute. Refused while the camera has an active
+        tuning run: assess the light before start_tuning_run."""
 
         @guarded("assess_site_light")
         def body(state: AppState) -> dict[str, Any]:

@@ -829,9 +829,11 @@ class TwoDService:
         Never trust the boot state (Derek 2026-10-23: a stray 28.6 dB in a user set skewed a
         day of measurements). Live only: nothing is written to the camera's flash. The camera
         is backed up first. ``mismatches`` lists the mode settings that did not take, and any
-        in-camera processing left on (sharpening: checked, never written).
+        in-camera processing left on (sharpening: checked, never written). Refused while the
+        camera has an active tuning run: a reset is a setup step, not a free run step.
         """
         serial, oc = self._require_open(camera_id)
+        self.refuse_during_run(serial, "reset the camera")
         backup, _ = self._take_backup(serial, oc, "before reset to factory Default")
         try:
             loaded = oc.camera.load_user_set("Default")
@@ -1506,6 +1508,16 @@ class TwoDService:
     def active_run(self, camera_id: str) -> TuningRun | None:
         """The active tuning run of a camera, if any."""
         return self._active_runs.get(self.cameras.resolve(camera_id))
+
+    def refuse_during_run(self, camera_id: str, what: str) -> None:
+        """Raise when the camera has an active tuning run (Derek 2026-11-01: reset and the site
+        light check change the camera without spending run steps, so they come before a run)."""
+        run = self.active_run(camera_id)
+        if run is not None:
+            raise InvalidRequestError(
+                f"camera {run.camera_id} has an active tuning run {run.run_id}: "
+                f"finish it first (finish_tuning_run), then {what}"
+            )
 
     def finish_run(
         self,

@@ -1,4 +1,4 @@
-# Lucid Triton TRI089S-M — camera white paper (generated 2026-10-30 15:48 UTC from the camera catalog; runs: 244500230/20261027T083623Z)
+# Lucid Triton TRI089S-M — camera white paper (generated 2026-11-01 13:11 UTC from the camera catalog; runs: 244500230/20261027T083623Z)
 
 What this camera is, how it works, how it behaves and how well it performs, measured on the
 camera_lab bench. Machine-readable twin: `camera.yaml`.
@@ -182,6 +182,7 @@ Full scale = 2¹² − 1 = 4095 DN. One fingerprint run (3 repeats inside it agr
 | hot pixels | unit-specific: 1542 at 1 ms, 5119 at 100 ms, ≈ 18 000 at ≥ 0.5 s on 244500230 | | [fingerprint 2026-10-27] |
 | frame averaging | 16 frames: noise ÷ 4.01 (√16 = 4.00): no fixed pattern limits averaging | | [fingerprint 2026-10-27] |
 | sharpness (Computar 8 mm, chart at ≈ 65 cm) | MTF50 0.223 / 0.225 / **0.233** / 0.218 / 0.183 / 0.128 cycles/px at f/2.8 / 4 / 5.6 / 8 / 11 / 16; best f/5.6 | | [measured 2026-10-27/28] |
+| sharpness at f/5.6, resolution sheet near the image centre (≈ 68 cm) | MTF50 **0.252** cycles/px (10 readings 0.250–0.254); horizontal 0.263, vertical 0.253; 0.229 in the lower-right quarter (≈ 65 cm). Steady across exposure: 0.2515–0.2544 with highlights from 0.10 to 0.75 of full scale | | [measured 2026-10-31] |
 
 **SNR vs signal level:** follows the shot-noise model up to ≈ 80 % of full scale (13.5 at
 1.7 %, 51 at 24 %, 72 at 47 %, 96 at 79 %). The 122 and 178 measured at 90 % and 95 % are
@@ -248,6 +249,7 @@ brighter, not better.
 | dark | lens cap on, 10 ms, Gain 0, BlackLevel 1 | black ≈ 41 DN, read noise ≈ 0.9 DN, no pixel at 0 |
 | no digital gain | finest step between shadow values | 1 DN |
 | no auto exposure | `ExposureAuto` reads Off; brightness steady over 10 frames | steady within the noise |
+| no in-camera sharpening | `SharpeningEnable` reads off (`two-d reset` and `verify` check it; camera_lab never writes it) | off |
 | start-up | `two-d reset` / `reset_camera` | all design-mode settings read back equal |
 | hot pixels | lens cap on, 100 ms | close to the unit's fingerprint count |
 | settling | change exposure, grab 3 frames | 0 stale frames |
@@ -263,8 +265,8 @@ brighter, not better.
 - Trigger-to-image delay and PTP timing on the machine. [to measure on site]
 
 ## 12. Test conditions and sources
-- Bench: white board lit by two LED panels (10-step dimmers), opal acrylic diffuser on the
-  lens, Computar 8 mm f/2.8–f/16 (1.1", C-mount), lens cap for darks. Unit 244500230,
+- Bench: DC LED floods at full (the bench light since 2026-10-23), opal acrylic diffuser on
+  the lens, Computar 8 mm f/2.8–f/16 (1.1", C-mount), lens cap for darks. Unit 244500230,
   firmware 1.97.0.0 (device version RQQ51).
 - Camera profile: `config/camera_profiles/244500230.yaml`
 - Live node map: `docs/cameras/TRI089S-M_244500230_fw1.97.0.0_nodemap.tsv`

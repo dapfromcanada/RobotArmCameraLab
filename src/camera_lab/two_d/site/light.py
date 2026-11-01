@@ -666,6 +666,7 @@ def assess_light(
     serial = service.resolve(camera_id)
     if not service.is_open(serial):
         service.open(serial, "site-light")
+    service.refuse_during_run(serial, "assess the light")
     info = service._open[serial].camera.info
     sheet = load_model_sheet(info.model, sheet_root)
     backup, _ = service.backup(serial, "site light assessment")

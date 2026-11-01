@@ -112,7 +112,7 @@ camera-lab mcp                                    # MCP server on stdio
 { "mcpServers": { "camera-lab": { "command": "/mnt/workspaces/robotic_cell/environments/camera_lab/bin/camera-lab", "args": ["mcp"] } } }
 ```
 
-Open Claude Code in `apps/camera_lab/`, approve the `camera-lab` server once, and ask in plain words, e.g. "open the sim camera, tune it, take 3 captures and save the best as a preset". The server is stdio only (no network port); camera_lab never calls the Claude API and needs no key. The agent has the same rights as a human and works under the same limits.
+Open Claude Code in `apps/camera_lab/`, approve the `camera-lab` server once, and ask in plain words, e.g. "open the sim camera, tune it, take 3 captures and save the best as a preset". The server is stdio only (no network port); camera_lab never calls the Claude API and needs no key. The agent has the same rights as a human and works under the same limits. `reset_camera` and `assess_site_light` come before a tuning run: during one they are refused (they would change the camera without spending run steps).
 
 ## GUI
 
